@@ -4,11 +4,11 @@ import styles from "./page.module.css";
 import { useState, useEffect } from 'react';
 
 export default function Home() {
-  const url = new URL('/api/', location);
   const [ routes, setRoutes ] = useState([]);
 
   useEffect(() => {
     async function fetchRoutes() {
+      const url = new URL('/api/', location);
       const data = await fetch(url);
       const fetched = await data.json();
       setRoutes(fetched);

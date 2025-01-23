@@ -10,6 +10,9 @@
 !.yarn/releases
 !.yarn/versions
 
+# localhost validator
+test-ledger/
+
 # testing
 /coverage
 

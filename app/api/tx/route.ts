@@ -1,11 +1,10 @@
 import {
-  Address, address, generateKeyPair, getAddressFromPublicKey,
-  createSolanaRpc, getLatestBlockhash,
+  address, createSolanaRpc, getLatestBlockhash,
   createTransactionMessage, setTransactionMessageFeePayer,
   setTransactionMessageLifetimeUsingBlockhash,
-  appendTransactionMessageInstructions,
-  getBase64EncodedWireTransaction,
-  getTransactionEncoder
+  appendTransactionMessageInstruction,
+  compileTransaction, getBase64EncodedWireTransaction,
+  lamports,
 } from "@solana/web3.js";
 import { getTransferSolInstruction } from '@solana-program/system';
 
@@ -26,60 +25,60 @@ export async function GET(req: Request) {
 export async function POST(req: NextRequest) {
   try {
     const DEVNET_RPC = "https://api.devnet.solana.com"
-
     const data = await req.json();
     console.log("POST Recieved", data);
 
-    const toAccount = process.env.TX_RECIPIENT_ACCOUNT;
-    console.log("Transfer to", toAccount);
+    const toAddressStr = process.env.TX_RECIPIENT_ACCOUNT;
+    console.log("Transfer to", toAddressStr);
 
-    const payerAccountStr = data.payerAccount;
-    console.log("Payer occount", payerAccountStr);
+    const payerAddressStr = data.payerAccount;
+    console.log("Payer account", payerAddressStr);
+
     const referenceStr = data.reference;
     console.log("Reference address", referenceStr);
 
-    const recipientAccount = address(toAccount);
-    const payerAccount = address(payerAccountStr);
+    const payerAddress = address(payerAddressStr);
+    const recipientAddress = address(toAddressStr);
     const reference = address(referenceStr);
 
     const lamportCount = Number(process.env.TX_LAMPORTS) || 1;
     console.log("Lamports", lamportCount);
 
+    const payerAccount = payerAddress; //new Account(payerAddress);
+    const recipientAccount = recipientAddress; //new Account(recipentAddress);
+
     const instruction = getTransferSolInstruction({
       source: payerAccount,
       destination: recipientAccount,
-      amount: lamportCount
+      amount: lamports(lamportCount),
     });
+    console.log("Instruction");
 
     const rpcEndpoint = process.env.TX_RPC_ENDPOINT || DEVNET_RPC;
     const rpc = createSolanaRpc(rpcEndpoint);
-    const latestBlock = await rpc.getLatestBlockhash().send();
-    const latestBlockhash = latestBlock.value.blockhash;
+    const { value: latestBlockhash } =
+      await rpc.getLatestBlockhash({ commitment: 'confirmed' }).send();
     console.log("Latest hash", latestBlockhash);
 
     let tx = createTransactionMessage({ version: 0 });
     tx = setTransactionMessageFeePayer(payerAccount, tx);
+    tx = appendTransactionMessageInstruction(instruction, tx);
     tx = setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, tx);
-    tx = appendTransactionMessageInstructions([instruction], tx);
+    console.log("TransactionMessage");
 
-    console.log("Transaction", JSON.stringify(tx, null, 2));
+    const transaction = compileTransaction(tx);
+    console.log("Compiled transaction");
 
-    const tec = getTransactionEncoder();
-    console.log("Encoder", tec);
-    const serializedTransaction = tec.encode(tx);
-    console.log("STx", serializedTransaction);
-
-    //const base64TxAddr = getBase64EncodedWireTransaction(tx);
+    const base64Tx = getBase64EncodedWireTransaction(transaction);
+    console.log("base64Tx:", base64Tx);
     const txPurpose =
       `Transfer ${lamportCount} lamports to ${recipientAccount}`;
 
-    return Response.json({
-      transaction: base64TxAddr,
-      message: txPurpose
-    });
+    return Response.json({ transaction: base64Tx, message: txPurpose });
   } catch (error) {
-    const text = 'Error initiating transaction is ' + error;
+    const text = `Error initiating transaction is ${error}`
     console.error(text);
+    console.log(error.stack);
     const options = { status: 500, statusText: text }
     return new Response(text, options);
   }

@@ -2,6 +2,7 @@
 
 import styles from "./page.module.css";
 import { useState, useEffect } from 'react';
+import QRCode from './components/QRCode';
 
 export default function Home() {
   const [ routes, setRoutes ] = useState([]);
@@ -16,9 +17,12 @@ export default function Home() {
     fetchRoutes();
   }, []);
 
+  const qrURL = location + 'tx/';
+
   return (
     <div className={styles.page}>
       <main className={styles.main}>
+        <QRCode qrData={qrURL} />
         <ul className='api-routes'>
           {routes.map((route, index) => (
             <li key={index}>

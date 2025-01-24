@@ -52,7 +52,6 @@ export async function POST(req: Request) {
     });
     console.log("Instruction", transfer);
 
-
     const rpcEndpoint = process.env.TX_RPC_ENDPOINT || DEVNET_RPC;
     const rpc = createSolanaRpc(rpcEndpoint);
     const { value: latestBlockhash } =
@@ -65,7 +64,7 @@ export async function POST(req: Request) {
     txMsg = setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, txMsg);
     console.log("TransactionMessage", txMsg);
 
-    const transaction = compileTransaction(txMsg);
+    const transaction = compileTransaction(txMsg as any);
     console.log("Compiled transaction");
 
     const base64Tx = getBase64EncodedWireTransaction(transaction);

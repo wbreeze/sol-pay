@@ -16,7 +16,7 @@ export default function Home() {
       setRoutes(fetched);
     }
     fetchRoutes();
-    setQRC("solana:" + location + 'tx/');
+    setQRC("solana:" + location + 'api/tx/');
   }, []);
 
   return (

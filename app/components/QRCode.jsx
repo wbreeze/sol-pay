@@ -132,7 +132,7 @@ export default function QRCode(props) {
     <div className='qr-code'>
       <div className='image' ref={qrRef} />
       <div className='data'>
-        <a href='{qrData}'>{qrData}</a>
+        <a href={qrData}>{qrData}</a>
       </div>
     </div>
   )

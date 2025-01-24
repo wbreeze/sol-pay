@@ -6,6 +6,7 @@ import QRCode from './components/QRCode';
 
 export default function Home() {
   const [ routes, setRoutes ] = useState([]);
+  const [ qrURL, setQRC ] = useState('');
 
   useEffect(() => {
     async function fetchRoutes() {
@@ -15,9 +16,8 @@ export default function Home() {
       setRoutes(fetched);
     }
     fetchRoutes();
+    setQRC(location + 'tx/');
   }, []);
-
-  const qrURL = location + 'tx/';
 
   return (
     <div className={styles.page}>

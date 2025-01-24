@@ -118,10 +118,10 @@ export default function QRCode(props) {
     }
   };
 
-  const qrCode = new QRCodeStyling(qrOptions);
   const qrRef = createRef();
 
   useEffect(() => {
+    const qrCode = new QRCodeStyling(qrOptions);
     qrCode.append(qrRef.current);
   }, []);
 

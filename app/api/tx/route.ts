@@ -28,19 +28,14 @@ export async function POST(req: Request) {
     const data = await req.json();
     console.log("POST Recieved", data);
 
-    const toAddressStr = process.env.TX_RECIPIENT_ACCOUNT;
-    console.log("Transfer to address", toAddressStr);
 
-    const payerAddressStr = data.payerAccount;
-    console.log("Payer address", payerAddressStr);
-
-    const referenceStr = data.reference;
-    console.log("Reference address", referenceStr);
-
+    const payerAddressStr = data.account;
     const payerAddress = address(payerAddressStr);
-    const recipientAddress = address(toAddressStr);
-    const reference = address(referenceStr);
     console.log("Payer address", payerAddress);
+
+    const recipientAddressStr = process.env.TX_RECIPIENT_ACCOUNT;
+    const recipientAddress = address(recipientAddressStr);
+    console.log("Recipent address", recipientAddress);
 
     const lamportCount = lamports(BigInt(process.env.TX_LAMPORTS || 1));
     console.log("Lamports", lamportCount);

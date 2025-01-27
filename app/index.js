@@ -1,5 +1,3 @@
-'use client';
-
 import styles from "./page.module.css";
 import { useState, useEffect } from 'react';
 import QRCode from './components/QRCode';

@@ -21,6 +21,7 @@ export const data = defineData({
   authorizationModes: {
     defaultAuthorizationMode: 'iam',
   },
+  logging: true,
 });
 
 /*== STEP 2 ===============================================================

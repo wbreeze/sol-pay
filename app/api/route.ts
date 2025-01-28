@@ -3,6 +3,7 @@ export async function GET(request: Request) {
       { methods: [ 'get' ], path: '/api/' },
       { methods: [ 'get' ], path: '/api/tx/' },
       { methods: [ 'post' ], path: '/api/tx/' },
+      { methods: [ 'get' ], path: '/photos' },
   ]);
 }
 

@@ -30,6 +30,9 @@ export default function Home() {
                 href={route.path}>{route.path}</a>
             </li>
           ))}
+          <li key="photos">
+            <a href="/photos">/photos</a>
+          </li>
         </ul>
       </main>
     </div>

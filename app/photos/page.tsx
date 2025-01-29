@@ -11,6 +11,8 @@ import Fullscreen from "yet-another-react-lightbox/plugins/fullscreen";
 import Download from "yet-another-react-lightbox/plugins/download";
 import "yet-another-react-lightbox/styles.css";
 
+import Tip from "../components/Tip";
+
 import photos from "./photos";
 
 export default function App() {
@@ -34,6 +36,8 @@ export default function App() {
         plugins={[Fullscreen, Download]}
         on={{ download: interceptDownload }}
       />
+
+      <Tip />
     </>
   );
 }

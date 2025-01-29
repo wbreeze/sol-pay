@@ -4,3 +4,16 @@ img.react-photo-album--image {
     rgba(0, 0, 0, 0.12) 0px 3px 12px 0px
 }
 
+div.tip {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  background-color: whitesmoke;
+  z-index: 20;
+  border: 1px solid black;
+}
+
+.yarl__portal {
+  --yarl__portal_zindex: 10;
+}
+

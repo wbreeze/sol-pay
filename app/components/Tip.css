@@ -11,10 +11,14 @@ div.tip {
   }
   p.tip-text {
     text-align-last: left;
+    margin-left: 0.5em;
+    margin-right: 0.5em;
   }
   p.tip-text-top {
     font-weight: bold;
     font-size: 14pt;
+    margin-top: 1ex;
+    margin-bottom: 1ex;
   }
   button {
     height: 4ex;

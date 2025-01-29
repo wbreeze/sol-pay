@@ -17,16 +17,17 @@ import photos from "./photos";
 
 export default function App() {
   const [index, setIndex] = useState(-1);
-
-  function interceptDownload(indexo: { index: number }) {
-    alert(`Download ${index}`);
-  }
+  const [solicit, setSolicit] = useState(false);
+  const solanaURL = new URL("/api/tx", location);
 
   return (
     <>
-      <RowsPhotoAlbum photos={photos} targetRowHeight={150}
+      <RowsPhotoAlbum
+       photos={photos}
+       targetRowHeight={150}
        spacing={4} padding={5}
-       onClick={({ index }) => setIndex(index)} />
+       onClick={({ index }) => setIndex(index)}
+      />
 
       <Lightbox
         slides={photos}
@@ -34,10 +35,14 @@ export default function App() {
         index={index}
         close={() => setIndex(-1)}
         plugins={[Fullscreen, Download]}
-        on={{ download: interceptDownload }}
+        on={{ download: () => setSolicit(true) }}
       />
 
-      <Tip />
+      <Tip
+        tipURL={'solana:'+solanaURL}
+        tipVisible={solicit}
+        closeTip={() => setSolicit(false)}
+      />
     </>
   );
 }

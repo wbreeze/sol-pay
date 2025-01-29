@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 import { RowsPhotoAlbum } from "react-photo-album";
 import "react-photo-album/rows.css";
@@ -18,7 +18,11 @@ import photos from "./photos";
 export default function App() {
   const [index, setIndex] = useState(-1);
   const [solicit, setSolicit] = useState(false);
-  const solanaURL = new URL("/api/tx", location);
+  const [solanaURL, setSolanaURL] = useState('/');
+
+  useEffect(()=> {
+    setSolanaURL(new URL("/api/tx", location));
+  }, [solanaURL]);
 
   return (
     <>

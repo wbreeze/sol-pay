@@ -1,0 +1,24 @@
+div.tip {
+  text-align: center;
+  text-align-last: center;
+  display: block;
+  width: 20em;
+
+  p {
+    text-align: justify;
+    font-family: serif;
+    font-size: 12pt;
+  }
+  p.tip-text {
+    text-align-last: left;
+  }
+  p.tip-text-top {
+    font-weight: bold;
+    font-size: 14pt;
+  }
+  button {
+    height: 4ex;
+    width: 100%;
+  }
+}
+

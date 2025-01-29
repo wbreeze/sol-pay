@@ -3,6 +3,7 @@
 import styles from "./page.module.css";
 import { useState, useEffect } from 'react';
 import QRCode from './components/QRCode';
+import Tip from './components/Tip';
 
 export default function Home() {
   const [ routes, setRoutes ] = useState([]);
@@ -31,6 +32,7 @@ export default function Home() {
             </li>
           ))}
         </ul>
+        <Tip />
       </main>
     </div>
   );

@@ -5,8 +5,10 @@ import { useState } from 'react';
 import "./Tip.css";
 
 export default function Tip(props) {
-  const tipQRData = props.tipURL || 'solana:https://';
+  const tipURL = props.tipURL || '/';
   const visible = props.tipVisible;
+
+  const tipQRData = 'solana:' + new URL(tipURL, location);
 
   return (
     <div className={ visible ? "tip tip-visible" : "tip"}>

@@ -18,11 +18,8 @@ import photos from "./photos";
 export default function App() {
   const [index, setIndex] = useState(-1);
   const [solicit, setSolicit] = useState(false);
-  const [solanaURL, setSolanaURL] = useState('/');
 
-  useEffect(()=> {
-    setSolanaURL(new URL("/api/tx", location));
-  }, [solanaURL]);
+  const tipURL = '/api/tx/';
 
   return (
     <>
@@ -43,7 +40,7 @@ export default function App() {
       />
 
       <Tip
-        tipURL={'solana:'+solanaURL}
+        tipURL={tipURL}
         tipVisible={solicit}
         closeTip={() => setSolicit(false)}
       />

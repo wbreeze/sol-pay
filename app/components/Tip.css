@@ -1,9 +1,8 @@
-div.tip {
+dialog.tip {
   text-align: center;
   text-align-last: center;
   display: block;
   width: 20em;
-  opacity: 0;
 
   p {
     text-align: justify;
@@ -25,9 +24,5 @@ div.tip {
     height: 4ex;
     width: 100%;
   }
-}
-
-div.tip-visible {
-  opacity: 1;
 }
 

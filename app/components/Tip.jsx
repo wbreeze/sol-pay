@@ -1,17 +1,44 @@
 'use client';
 
+/*
+Thank you to Rahul in India
+for the example code on GitHub
+https://github.com/c99rahul/react-modal/
+that displays and dismisses a dialog.
+*/
+
 import QRCode from './QRCode';
-import { useState } from 'react';
+import { useRef, createRef, useEffect } from 'react';
 import "./Tip.css";
 
 export default function Tip(props) {
   const tipURL = props.tipURL || '/';
-  const visible = props.tipVisible;
+  const isOpen = props.isOpen || false;
+  const onClose = props.onClose || null;
+  const tipRef = useRef(null);
 
   const tipQRData = 'solana:' + new URL(tipURL, location);
 
+  function handleCloseTip() {
+    if (onClose) {
+      onClose();
+    }
+  };
+
+  useEffect(() => {
+    const tipElement = tipRef.current;
+    console.log("Have tip element:", tipElement);
+    if (tipElement) {
+      if (isOpen) {
+        tipElement.showModal();
+      } else {
+        tipElement.close();
+      }
+    }
+  }, [isOpen]);
+
   return (
-    <div className={ visible ? "tip tip-visible" : "tip"}>
+    <dialog ref={tipRef} className="tip">
       <p className='tip-text-top'>Gracias por descargar.<br/>
         ¡Me gusta que te guste!</p>
       <QRCode qrData={tipQRData} />
@@ -23,9 +50,11 @@ export default function Tip(props) {
       </a>
       <p className="tip-cc">Copyright Douglas Lovell.</p>
       <button
-        onClick={() => props.closeTip()}
-        className='tip-dismiss'>Cerrar</button>
-    </div>
+        onClick={handleCloseTip}
+        className='tip-dismiss'
+        aria-label='Cerrá pedido'
+      >Cerrar</button>
+    </dialog>
   )
 }
 

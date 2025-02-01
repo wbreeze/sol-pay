@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from "react";
+import { useState, useRef } from "react";
 
 import { RowsPhotoAlbum } from "react-photo-album";
 import "react-photo-album/rows.css";
@@ -17,9 +17,13 @@ import photos from "./photos";
 
 export default function App() {
   const [index, setIndex] = useState(-1);
-  const [solicit, setSolicit] = useState(false);
+  const [tipDisplayed, setTipDisplayed] = useState(false);
+  const lightboxRef = useRef(null);
 
-  const tipURL = '/api/tx/';
+  function onDownload() {
+    setIndex(-1);
+    setTipDisplayed(true);
+  }
 
   return (
     <>
@@ -31,18 +35,19 @@ export default function App() {
       />
 
       <Lightbox
+        ref={lightboxRef}
         slides={photos}
         open={index >= 0}
         index={index}
         close={() => setIndex(-1)}
         plugins={[Fullscreen, Download]}
-        on={{ download: () => setSolicit(true) }}
+        on={{ download: onDownload }}
       />
 
       <Tip
-        tipURL={tipURL}
-        tipVisible={solicit}
-        closeTip={() => setSolicit(false)}
+        tipURL={'api/tx'}
+        isOpen={tipDisplayed}
+        onClose={() => setTipDisplayed(false)}
       />
     </>
   );

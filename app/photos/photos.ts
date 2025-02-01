@@ -1,9 +1,19 @@
 import type { Photo } from "react-photo-album";
 
-//const breakpoints = [1080, 640, 384, 256, 128, 96, 64, 48];
+const breakpoints = [
+  {size:400, subdir:'thumbnail'},
+  {size:1600, subdir:'preview'},
+];
 
-function assetLink(dir: string, photo: string) {
-  return `https://wbreeze.com/photo/gallery/${dir}/preview/${photo}`;
+function assetLink(dir, subdir, photo) {
+  const root = 'https://wbreeze.com/photo/gallery';
+  let link;
+  if (subdir) {
+    link = `${root}/${dir}/${subdir}/${photo}`;
+  } else {
+    link = `${root}/${dir}/${photo}`;
+  }
+  return link;
 }
 
 const photos = [
@@ -262,15 +272,15 @@ const photos = [
 ].map(
   ({ dir, photo, alt, width, height }) =>
     ({
-      src: assetLink(dir, photo),
+      src: assetLink(dir, null, photo),
       alt,
       width,
       height,
-      //srcSet: breakpoints.map((breakpoint) => ({
-        //src: assetLink(dir, photo),
-        //width: breakpoint,
-        //height: Math.round((height / width) * breakpoint),
-      //})),
+      srcSet: breakpoints.map((bp) => ({
+        src: assetLink(dir, bp.subdir, photo),
+        width: bp.size,
+        height: Math.round((height / width) * bp.size),
+      })),
     }) as Photo,
 );
 

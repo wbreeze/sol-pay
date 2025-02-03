@@ -9,7 +9,8 @@ export default function Home() {
   const [ qrURL, setQRC ] = useState('');
 
   useEffect(() => {
-    const ssrCatch = location || null;
+    const ssrCatch =
+      (typeof location === 'undefined') ? 'http://localhost' : location;
     async function fetchRoutes() {
       const url = new URL('/api/', ssrCatch);
       const data = await fetch(url);

@@ -22,7 +22,8 @@ export default function Tip(props) {
   const onClose = props.onClose || null;
   const tipRef = useRef(null);
 
-  const ssrCatch = location || null;
+  const ssrCatch =
+    (typeof location === 'undefined') ? 'http://localhost' : location;
   const tipQRData = 'solana:' + new URL(tipURL, ssrCatch);
 
   function handleCloseTip() {

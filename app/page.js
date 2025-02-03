@@ -3,21 +3,21 @@
 import styles from "./page.module.css";
 import { useState, useEffect } from 'react';
 import QRCode from './components/QRCode';
-import Tip from './components/Tip';
 
 export default function Home() {
   const [ routes, setRoutes ] = useState([]);
   const [ qrURL, setQRC ] = useState('');
 
   useEffect(() => {
+    const ssrCatch = location || null;
     async function fetchRoutes() {
-      const url = new URL('/api/', location);
+      const url = new URL('/api/', ssrCatch);
       const data = await fetch(url);
       const fetched = await data.json();
       setRoutes(fetched);
     }
     fetchRoutes();
-    setQRC("solana:" + location + 'api/tx/');
+    setQRC("solana:" + new URL('api/tx/', ssrCatch));
   }, []);
 
   return (
@@ -32,7 +32,6 @@ export default function Home() {
             </li>
           ))}
         </ul>
-        <Tip />
       </main>
     </div>
   );

@@ -5,6 +5,11 @@ Thank you to Rahul in India
 for the example code on GitHub
 https://github.com/c99rahul/react-modal/
 that displays and dismisses a dialog.
+
+There is something in the Lightbox implementation
+that aria- hides the close button when the lightbox
+is showing. The button remains visible yet hidden from
+any interaction.
 */
 
 import QRCode from './QRCode';
@@ -17,7 +22,8 @@ export default function Tip(props) {
   const onClose = props.onClose || null;
   const tipRef = useRef(null);
 
-  const tipQRData = 'solana:' + new URL(tipURL, location);
+  const ssrCatch = location || null;
+  const tipQRData = 'solana:' + new URL(tipURL, ssrCatch);
 
   function handleCloseTip() {
     if (onClose) {

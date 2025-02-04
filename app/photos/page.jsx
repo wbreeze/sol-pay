@@ -15,7 +15,7 @@ import Tip from "../components/Tip";
 
 import photos from "./photos";
 
-export default function App() {
+export default function Page() {
   const [index, setIndex] = useState(-1);
   const [tipDisplayed, setTipDisplayed] = useState(false);
   const lightboxRef = useRef(null);

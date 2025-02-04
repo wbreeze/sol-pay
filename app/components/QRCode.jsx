@@ -1,5 +1,7 @@
+'use client';
+
 import QRCodeStyling from 'qr-code-styling';
-import { createRef, useEffect, useState } from 'react';
+import { createRef, useEffect } from 'react';
 
 export default function QRCode(props) {
   const qrData = props.qrData || 'https://localhost:3000/';
@@ -126,7 +128,7 @@ export default function QRCode(props) {
     const qrCode = new QRCodeStyling(qrOptions(qrSize, qrData));
     qrRef.current.innerHTML = "";
     qrCode.append(qrRef.current);
-  }, [qrSize, qrData]);
+  });
 
   return (
     <div className='qr-code'>

@@ -1,0 +1,17 @@
+
+div.pos-amount,
+div.pos-cambio,
+div.pos-peso {
+  margin-top: 1.5ex;
+  font-size: 24pt;
+  font-weight: bold;
+  input {
+    font-size: 36pt;
+    text-align: right;
+    width: 7em;
+  }
+  label {
+    display:block;
+  }
+}
+

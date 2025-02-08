@@ -8,9 +8,31 @@ export default function POS(props) {
   const account = props.baseURL || 'Set Account';
   const qrcBase = 'solana:' + account + '?'
 
+  const DEFAULT_PESO = 100;
+  const DEFAULT_CAMBIO = 8000;
+  const DEFAULT_PRICE = milliSolDesdePeso(DEFAULT_PESO, DEFAULT_CAMBIO);
+
+  const [qrURL, setQR] = useState(qrAmount(DEFAULT_PRICE));
+
   function qrAmount(milliSol) {
-    const data = qrcBase + 'amount=' + (milliSol / 1_000).toFixed(7);
-    return encodeURI(data);
+    return 'amount=' + (milliSol / 1_000).toFixed(7);
+  }
+
+  function memoValue(memo) {
+    return (0 < memo.length) ? '&memo=' + encodeURIComponent(memo) : '';
+  }
+
+  function msgValue(msg) {
+    return (0 < msg.length) ? '&message=' + encodeURIComponent(msg) : '';
+  }
+
+  function updateQRC(milliSol) {
+      const eMemo = document.getElementById('memo');
+      const memo = eMemo.value.trim();
+      const msg = "Mi Empresa";
+      const data = qrcBase + qrAmount(milliSol) +
+        msgValue(msg) + memoValue(memo);
+      setQR(data);
   }
 
   function pesoDesdeMilliSol(milliSol, dps) {
@@ -28,7 +50,7 @@ export default function POS(props) {
       const cambio = Number(eCambio.value);
       const ePeso = document.getElementById('peso');
       ePeso.value = pesoDesdeMilliSol(amount, cambio).toFixed(2);
-      setQR(qrAmount(amount));
+      updateQRC(amount);
     } catch(e) {
       console.log(e, "Amount or cambio is not a number");
     }
@@ -53,17 +75,20 @@ export default function POS(props) {
       const cambio = Number(eCambio.value);
       const eAmount = document.getElementById('amount');
       eAmount.value = milliSolDesdePeso(amount, cambio).toFixed(4);
-      setQR(qrAmount(eAmount.value));
+      updateQRC(eAmount.value);
     } catch(e) {
       console.log(e, "Pesos o cambio no es número");
     }
   }
 
-  const DEFAULT_PESO = 100;
-  const DEFAULT_CAMBIO = 8000;
-  const DEFAULT_PRICE = milliSolDesdePeso(DEFAULT_PESO, DEFAULT_CAMBIO);
-
-  const [qrURL, setQR] = useState(qrAmount(DEFAULT_PRICE));
+  function handleMemo(ev) {
+    try {
+      const eAmount = document.getElementById('amount');
+      updateQRC(eAmount.value);
+    } catch(e) {
+      console.log(e, "Amount is not a number");
+    }
+  }
 
   return (
     <>
@@ -90,6 +115,11 @@ export default function POS(props) {
          defaultValue={DEFAULT_PRICE} min='1' max='3000' step='10'
          onChange={handleAmount}
         />/1000 Sol
+      </div>
+      <div className='pos-memo'>
+        <label htmlFor='memo'>Referente:</label>
+        <input type='text' id='memo' defaultValue=""
+         onChange={handleMemo} />
       </div>
     </>
   );

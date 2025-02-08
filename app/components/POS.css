@@ -1,17 +1,22 @@
 
 div.pos-amount,
 div.pos-cambio,
-div.pos-peso {
+div.pos-peso,
+div.pos-memo {
   margin-top: 1.5ex;
-  font-size: 24pt;
+  font-size: 18pt;
   font-weight: bold;
   input {
-    font-size: 36pt;
+    font-size: 22pt;
     text-align: right;
     width: 7em;
   }
   label {
     display:block;
   }
+}
+input#memo {
+  width: 14em;
+  text-align: left;
 }
 

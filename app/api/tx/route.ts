@@ -69,7 +69,11 @@ export async function POST(req: Request) {
     console.log("Instruction", transfer);
 
     const rpcEndpoint = process.env.TX_RPC_ENDPOINT || DEVNET_RPC;
+    console.log("Endpoint is", rpcEndpoint);
+
     const rpc = createSolanaRpc(rpcEndpoint);
+    console.log("Have", rpc, "for endpoint", rpcEndpoint);
+
     const { value: latestBlockhash } =
       await rpc.getLatestBlockhash({ commitment: 'confirmed' }).send();
     console.log("Latest hash", latestBlockhash);

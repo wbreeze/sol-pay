@@ -13,7 +13,7 @@ Run `npm install` to install dependencies end get started.
 Copy `.env.example` to `.env` and edit the environment variables
 appropriately.
 
-Run `npm run dev` or simply `./bin/dev` to start the development server
+Run `npm run dev` or simply `./bin/serve` to start the development server
 and rebuild the application on file changes.
 
 Run `solana-test-validator` to start a testing Solana block chain on localhost.

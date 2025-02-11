@@ -21,8 +21,10 @@ const headers = {
 };
 
 // amount we are transacting with here
-const lamportCount = lamports(BigInt(process.env.TX_LAMPORTS || 1));
+const txLamports = Number(process.env.TX_LAMPORTS || 100_000);
+const lamportCount = lamports(BigInt(process.env.TX_LAMPORTS || 100_000));
 const LAMPORTS_PER_SOL = 1_000_000_000;
+const solAmount = txLamports / LAMPORTS_PER_SOL;
 
 export async function GET(req: Request) {
   try {
@@ -31,7 +33,7 @@ export async function GET(req: Request) {
       label: process.env.TX_LABEL || "Solana Transaction",
       icon: "https://solana.com/src/img/branding/solanaLogoMark.svg",
       title: process.env.TX_SOURCE || "My place",
-      description: "Send " + lamportCount + "/" + LAMPORTS_PER_SOL + " SOL",
+      description: "Send " + solAmount + " SOL",
     };
 
     return Response.json(payload, { headers });

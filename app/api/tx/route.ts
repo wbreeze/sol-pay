@@ -8,26 +8,48 @@ import {
 } from "@solana/web3.js";
 import { getTransferSolInstruction } from '@solana-program/system';
 
+// standard headers for this route (including CORS)
+const headers = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET,POST,PUT,OPTIONS",
+  "Access-Control-Allow-Headers":
+    "Content-Type, Authorization, " +
+    "Content-Encoding, Accept-Encoding, " +
+    "X-Accept-Action-Version, X-Accept-Blockchain-Ids",
+  "Access-Control-Expose-Headers": "X-Action-Version, X-Blockchain-Ids",
+  "Content-Type": "application/json",
+};
+
+// amount we are transacting with here
+const lamportCount = lamports(BigInt(process.env.TX_LAMPORTS || 1));
+const LAMPORTS_PER_SOL = 1_000_000_000;
+
 export async function GET(req: Request) {
   try {
-    return Response.json({
+    const payload = {
+      type: 'action',
       label: process.env.TX_LABEL || "Solana Transaction",
       icon: "https://solana.com/src/img/branding/solanaLogoMark.svg",
-    });
+      title: process.env.TX_SOURCE || "My place",
+      description: "Send " + lamportCount + "/" + LAMPORTS_PER_SOL + " SOL",
+    };
+
+    return Response.json(payload, { headers });
   } catch (error) {
     const text = 'Error identifying recipient is ' + error;
     console.error(text);
-    const options = { status: 500, statusText: text }
+    const options = { ...headers, status: 500, statusText: text }
     return new Response(text, options);
   }
 }
+
+export const OPTIONS = async () => Response.json(null, { headers });
 
 export async function POST(req: Request) {
   try {
     const DEVNET_RPC = "https://api.devnet.solana.com"
     const data = await req.json();
     console.log("POST Recieved", data);
-
 
     const payerAddressStr = data.account;
     const payerAddress = address(payerAddressStr);
@@ -37,7 +59,6 @@ export async function POST(req: Request) {
     const recipientAddress = address(recipientAddressStr);
     console.log("Recipent address", recipientAddress);
 
-    const lamportCount = lamports(BigInt(process.env.TX_LAMPORTS || 1));
     console.log("Lamports", lamportCount);
 
     const transfer = getTransferSolInstruction({
@@ -67,7 +88,8 @@ export async function POST(req: Request) {
     const txPurpose =
       `Transfer ${lamportCount} lamports to ${recipientAddress}`;
 
-    return Response.json({ transaction: base64Tx, message: txPurpose });
+    return Response.json({ transaction: base64Tx, message: txPurpose },
+      { headers });
   } catch (error) {
     const text = `Error initiating transaction is ${error}`
     console.error(text);

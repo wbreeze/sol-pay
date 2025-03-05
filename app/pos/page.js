@@ -1,3 +1,4 @@
+import './page.css';
 import POS from '../components/POS';
 
 export default async function Page({ searchParams }) {

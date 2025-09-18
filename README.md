@@ -1,22 +1,27 @@
 # SolPay
 
-This project offers a pay-as-you-go capability using the Solana
+This project will offer a pay-as-you-go capability using the Solana
 block chain ecosystem.
 
-- https://docs.solanapay.com/core/transaction-request/overview
-- https://github.com/anza-xyz/solana-pay
+Note: This is a work in progress. Do try to implement. Do not use as
+a reference code base or example. Do not expect it to work.
+
 
 ## Development
 
-Run `npm install` to install dependencies end get started.
+Run `pnpm install` to install dependencies end get started.
 
 Copy `.env.example` to `.env` and edit the environment variables
 appropriately.
 
-Run `npm run dev` or simply `./bin/serve` to start the development server
+Run `pnpm run dev` or simply `./bin/serve` to start the development server
 and rebuild the application on file changes.
 
 Run `solana-test-validator` to start a testing Solana block chain on localhost.
+
+Find the Solana on-chain programs in the `payGo` directory. These use
+Shank to generate an IDL from annotated programs written with Rust.
+They use the Codama generator to generate a client in JavaScript from the IDL.
 
 ## Payment model
 

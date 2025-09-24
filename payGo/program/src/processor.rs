@@ -59,6 +59,7 @@ fn create<'a>(accounts: &'a [AccountInfo<'a>]) -> ProgramResult {
         key: Key::Counter,
         authority: *ctx.accounts.authority.key,
         value: 0,
+        increment_by: 1,
     };
     let mut seeds = Counter::seeds(ctx.accounts.authority.key);
     let bump = [counter_bump];
@@ -92,6 +93,6 @@ fn increment<'a>(accounts: &'a [AccountInfo<'a>], amount: Option<u32>) -> Progra
     assert_same_pubkeys("authority", ctx.accounts.authority, &counter.authority)?;
 
     // Increment Counter PDA.
-    counter.value += amount.unwrap_or(1);
+    counter.value += amount.unwrap_or(counter.increment_by);
     counter.save(ctx.accounts.counter)
 }

@@ -20,10 +20,11 @@ pub struct Counter {
     pub key: Key,
     pub authority: Pubkey,
     pub value: u32,
+    pub increment_by: u32,
 }
 
 impl Counter {
-    pub const LEN: usize = 1 + 32 + 4;
+    pub const LEN: usize = 1 + 32 + 4 + 4;
 
     pub fn seeds(authority: &Pubkey) -> Vec<&[u8]> {
         vec!["counter".as_bytes(), authority.as_ref()]

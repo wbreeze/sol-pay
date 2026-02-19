@@ -1,18 +1,19 @@
 [toolchain]
+package_manager = "yarn"
 
 [features]
 resolution = true
 skip-lint = false
 
 [programs.localnet]
-pay_on_chain = "55ZhZPQ9A75RmDu18fZQLvyAMiooqDKyraYG4DqpNnk3"
+pay_on_chain = "CZYS5ezTK4uP23AxJfTmsbSJXAMnmgar45uXzeBce8Cb"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "Localnet"
+cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "cargo test"
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 \"tests/**/*.ts\""

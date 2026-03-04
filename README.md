@@ -39,6 +39,10 @@ when enough usage has accumulated to make worthwhile a transfer transaction.
 The site asks to refresh the limit when the wallet owner has reached the
 spending limit they have set.
 
+See also, the [x402 protocol][x402] from Coinbase.
+
+[x402]: https://docs.cdp.coinbase.com/x402/welcome
+
 ## Request flow
 
 This state diagram shows the flow of a page request when navigating

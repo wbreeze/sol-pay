@@ -19,9 +19,15 @@ and rebuild the application on file changes.
 
 Run `solana-test-validator` to start a testing Solana block chain on localhost.
 
-Find the Solana on-chain programs in the `payGo` directory. These use
-Shank to generate an IDL from annotated programs written with Rust.
-They use the Codama generator to generate a client in JavaScript from the IDL.
+Find the Solana on-chain programs in the `pay-on-chain` directory.
+
+These use the [Anchor framework][anchor] for on chain smart contracts.  They
+use the [Codama generator][codama] to [generate a client in JavaScript][render]
+from the Anchor IDL.
+
+[anchor]: https://www.anchor-lang.com/docs
+[render]: https://github.com/codama-idl/renderers-js
+[codama]: https://github.com/codama-idl/codama
 
 ## Payment model
 
@@ -32,6 +38,10 @@ allowing incremental charges up to the limit.  The site charges the wallet
 when enough usage has accumulated to make worthwhile a transfer transaction.
 The site asks to refresh the limit when the wallet owner has reached the
 spending limit they have set.
+
+See also, the [x402 protocol][x402] from Coinbase.
+
+[x402]: https://docs.cdp.coinbase.com/x402/welcome
 
 ## Request flow
 

@@ -16,9 +16,8 @@ state slug_lookup
 state authorize #yellow
 state add_wallet #pink
 state metered_page
-state increment_meter #pink
+state meter_and_settle #pink
 state check_limit <<choice>>
-state take_payment #pink
 state account_page #cyan
 state metered_page #cyan
 state increment_limit #pink
@@ -53,8 +52,11 @@ create_account : zero used amount
 create_account --> authorize
 
 authorize : payer wallet authorizes contract with limit
-authorize -> sign_up : wallet cancelled
-authorize --> add_wallet : wallet signed
+authorize : reused for both initial sign-up and limit renewal
+authorize -> sign_up : wallet cancelled (sign-up)
+authorize --> add_wallet : wallet signed (sign-up)
+authorize -> account_page : wallet cancelled (renewal)
+authorize -[bold]-> [*] : wallet signed (renewal), navigate with slug
 
 add_wallet : create a slug
 add_wallet : update account with wallet address and slug
@@ -63,16 +65,14 @@ add_wallet --> check_limit
 metered_page : display metered content as navigated
 metered_page -[bold]-> [*] : navigate with slug
 
-increment_meter : bump used amount on account by page increment
-increment_meter -[bold]-> take_payment : sufficient unpaid
-increment_meter -[bold]-> metered_page : insufficient unpaid
+meter_and_settle : bump used amount on account by page increment
+meter_and_settle : if bumped total crosses threshold, transfer funds in same instruction
+meter_and_settle : increment and transfer succeed or fail together (atomic)
+meter_and_settle -[bold]-> metered_page : instruction succeeded
+meter_and_settle --> account_page : instruction failed (insufficient funds)
 
 check_limit -> account_page : limit reached
-check_limit -[bold]-> increment_meter : meter below limit
-
-take_payment : make transfer of funds from wallet
-take_payment --> account_page : payment failed
-take_payment -r[bold]-> metered_page : payment succeeded
+check_limit -[bold]-> meter_and_settle : meter below limit
 
 account_page: show current limit, cost per page
 account_page: show used and paid amount
@@ -88,13 +88,14 @@ increment_limit: reduce used amount by paid amount
 increment_limit: zero paid amount
 increment_limit: set new limit amount
 increment_limit: generate new slug
-increment_limit --> [*] : navigate with slug
+increment_limit --> authorize : re-authorize new limit
 
-check_collect --> take_final_payment : sufficient unpaid
-check_collect --> delete_account : insufficient unpaid
+check_collect --> take_final_payment : threshold reached
+check_collect --> delete_account : below threshold
 
-take_final_payment: same program as take_payment
-take_final_payment --> delete_account
+take_final_payment: same transfer logic as meter_and_settle's transfer step
+take_final_payment --> delete_account : payment succeeded
+take_final_payment --> delete_account : payment failed (take the loss)
 
 delete_account --> [*] : navigate without slug
 

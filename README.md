@@ -29,6 +29,12 @@ from the Anchor IDL.
 [render]: https://github.com/codama-idl/renderers-js
 [codama]: https://github.com/codama-idl/codama
 
+To build the on-chain programs, switch to the `pay-on-chain` directory and
+issue the command, `anchor build`. See [getting started with anchor][ags]
+for further instructions about working with the anchor programs.
+
+[ags]: https://www.anchor-lang.com/docs/quickstart/local#getting-started
+
 ## Payment model
 
 The payment model is that someone with a wallet identifies with the wallet and

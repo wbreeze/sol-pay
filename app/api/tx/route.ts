@@ -5,7 +5,7 @@ import {
   appendTransactionMessageInstruction,
   compileTransaction, getBase64EncodedWireTransaction,
   lamports,
-} from "@solana/web3.js";
+} from "@solana/kit";
 import { getTransferSolInstruction } from '@solana-program/system';
 
 // standard headers for this route (including CORS)

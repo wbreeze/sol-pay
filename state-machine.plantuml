@@ -21,8 +21,6 @@ state check_limit <<choice>>
 state account_page #cyan
 state metered_page #cyan
 state increment_limit #pink
-state check_collect <<choice>>
-state take_final_payment #pink
 state delete_account
 
 [*] -[bold]-> bumpslugcheck : navigate
@@ -66,7 +64,8 @@ metered_page : display metered content as navigated
 metered_page -[bold]-> [*] : navigate with slug
 
 meter_and_settle : bump used amount on account by page increment
-meter_and_settle : if bumped total crosses threshold, transfer funds in same instruction
+meter_and_settle : if unpaid balance crosses collection threshold,
+meter_and_settle : transfer the entire unpaid balance in same instruction
 meter_and_settle : increment and transfer succeed or fail together (atomic)
 meter_and_settle -[bold]-> metered_page : instruction succeeded
 meter_and_settle --> account_page : instruction failed (insufficient funds)
@@ -81,7 +80,7 @@ account_page: prompt new limit for renewal
 account_page: enforce minimum on limit amount
 account_page -> [*] : navigate with slug
 account_page --> increment_limit : renew
-account_page --> check_collect : delete
+account_page --> delete_account : delete
 
 increment_limit: enforce minimum on limit amount
 increment_limit: reduce used amount by paid amount
@@ -90,13 +89,9 @@ increment_limit: set new limit amount
 increment_limit: generate new slug
 increment_limit --> authorize : re-authorize new limit
 
-check_collect --> take_final_payment : threshold reached
-check_collect --> delete_account : below threshold
-
-take_final_payment: same transfer logic as meter_and_settle's transfer step
-take_final_payment --> delete_account : payment succeeded
-take_final_payment --> delete_account : payment failed (take the loss)
-
+delete_account : meter_and_settle takes the entire unpaid balance,
+delete_account : so residue is always below the collection threshold
+delete_account : leave the residue uncollected (take the loss)
 delete_account --> [*] : navigate without slug
 
 @enduml

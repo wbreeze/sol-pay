@@ -9,7 +9,6 @@ use solana_pubkey::Pubkey;
 
 use super::ids::*;
 use super::pda::*;
-use super::slug::{Slug, SLUG_LEN};
 
 /// Anchor discriminators: the first eight bytes of sha256("global:<name>").
 /// Precomputed so the client needs no hash dependency; `tests` below
@@ -39,7 +38,6 @@ struct InitializeSiteArgs {
 
 #[derive(BorshSerialize)]
 struct OpenContractArgs {
-    slug: [u8; SLUG_LEN],
     limit: u64,
 }
 
@@ -50,7 +48,6 @@ struct MeterAndSettleArgs {
 
 #[derive(BorshSerialize)]
 struct RenewContractArgs {
-    new_slug: [u8; SLUG_LEN],
     new_limit: u64,
 }
 
@@ -89,28 +86,19 @@ pub fn open_contract(
     site: &Pubkey,
     payer: &Pubkey,
     payer_token_account: &Pubkey,
-    slug: &Slug,
     limit: u64,
 ) -> Instruction {
     let (contract, _) = contract_address(site, payer);
-    let (slug_index, _) = slug_index_address(site, slug);
     Instruction {
         program_id: PAY_ON_CHAIN_ID,
         accounts: vec![
             AccountMeta::new(*payer, true),
             AccountMeta::new_readonly(*site, false),
             AccountMeta::new(contract, false),
-            AccountMeta::new(slug_index, false),
             AccountMeta::new_readonly(*payer_token_account, false),
             AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
         ],
-        data: data(
-            discriminator::OPEN_CONTRACT,
-            &OpenContractArgs {
-                slug: *slug.as_bytes(),
-                limit,
-            },
-        ),
+        data: data(discriminator::OPEN_CONTRACT, &OpenContractArgs { limit }),
     }
 }
 
@@ -152,44 +140,30 @@ pub fn renew_contract(
     site: &Pubkey,
     payer: &Pubkey,
     payer_token_account: &Pubkey,
-    current_slug: &Slug,
-    new_slug: &Slug,
     new_limit: u64,
 ) -> Instruction {
     let (contract, _) = contract_address(site, payer);
-    let (old_slug_index, _) = slug_index_address(site, current_slug);
-    let (new_slug_index, _) = slug_index_address(site, new_slug);
     Instruction {
         program_id: PAY_ON_CHAIN_ID,
         accounts: vec![
             AccountMeta::new(*payer, true),
             AccountMeta::new_readonly(*site, false),
             AccountMeta::new(contract, false),
-            AccountMeta::new(old_slug_index, false),
-            AccountMeta::new(new_slug_index, false),
             AccountMeta::new_readonly(*payer_token_account, false),
             AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
         ],
-        data: data(
-            discriminator::RENEW_CONTRACT,
-            &RenewContractArgs {
-                new_slug: *new_slug.as_bytes(),
-                new_limit,
-            },
-        ),
+        data: data(discriminator::RENEW_CONTRACT, &RenewContractArgs { new_limit }),
     }
 }
 
-pub fn close_contract(site: &Pubkey, payer: &Pubkey, slug: &Slug) -> Instruction {
+pub fn close_contract(site: &Pubkey, payer: &Pubkey) -> Instruction {
     let (contract, _) = contract_address(site, payer);
-    let (slug_index, _) = slug_index_address(site, slug);
     Instruction {
         program_id: PAY_ON_CHAIN_ID,
         accounts: vec![
             AccountMeta::new(*payer, true),
             AccountMeta::new_readonly(*site, false),
             AccountMeta::new(contract, false),
-            AccountMeta::new(slug_index, false),
         ],
         data: discriminator::CLOSE_CONTRACT.to_vec(),
     }

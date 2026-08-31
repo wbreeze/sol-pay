@@ -57,16 +57,12 @@ pub mod pay_on_chain {
         Ok(())
     }
 
-    /// Create a payer's contract and claim its first slug.
+    /// Create a payer's contract with this site.
     ///
     /// The client must place an SPL `approve` naming this contract PDA as
     /// delegate *earlier in the same transaction*; this instruction verifies
     /// it rather than trusting the client to have done it.
-    pub fn open_contract(
-        ctx: Context<OpenContract>,
-        slug: [u8; SLUG_LEN],
-        limit: u64,
-    ) -> Result<()> {
+    pub fn open_contract(ctx: Context<OpenContract>, limit: u64) -> Result<()> {
         let site = &ctx.accounts.site;
         require!(limit >= site.min_limit, PayError::LimitBelowMinimum);
 
@@ -76,16 +72,10 @@ pub mod pay_on_chain {
         let contract = &mut ctx.accounts.contract;
         contract.site = site.key();
         contract.payer = ctx.accounts.payer.key();
-        contract.slug = slug;
         contract.limit = limit;
         contract.used = 0;
         contract.paid = 0;
         contract.bump = ctx.bumps.contract;
-        contract.slug_bump = ctx.bumps.slug_index;
-
-        let index = &mut ctx.accounts.slug_index;
-        index.contract = contract_key;
-        index.bump = ctx.bumps.slug_index;
         Ok(())
     }
 
@@ -153,19 +143,13 @@ pub mod pay_on_chain {
         Ok(())
     }
 
-    /// Renew with a fresh limit and a fresh slug.
+    /// Renew with a fresh limit.
     ///
     /// Usage already paid for is forgiven from the counter, so the payer
     /// starts the new period owing only the residue that was too small to
-    /// collect. The old slug index is closed and a new one opened in the same
-    /// instruction, so the old URL stops resolving exactly when the new one
-    /// starts. A matching SPL `approve` for the new limit must precede this
+    /// collect. A matching SPL `approve` for the new limit must precede this
     /// instruction in the transaction.
-    pub fn renew_contract(
-        ctx: Context<RenewContract>,
-        new_slug: [u8; SLUG_LEN],
-        new_limit: u64,
-    ) -> Result<()> {
+    pub fn renew_contract(ctx: Context<RenewContract>, new_limit: u64) -> Result<()> {
         let site = &ctx.accounts.site;
         require!(new_limit >= site.min_limit, PayError::LimitBelowMinimum);
 
@@ -184,12 +168,6 @@ pub mod pay_on_chain {
         contract.used = carried;
         contract.paid = 0;
         contract.limit = new_limit;
-        contract.slug = new_slug;
-        contract.slug_bump = ctx.bumps.new_slug_index;
-
-        let index = &mut ctx.accounts.new_slug_index;
-        index.contract = contract_key;
-        index.bump = ctx.bumps.new_slug_index;
 
         emit!(Renewed {
             contract: contract_key,
@@ -249,7 +227,6 @@ pub struct InitializeSite<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(slug: [u8; SLUG_LEN])]
 pub struct OpenContract<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
@@ -262,14 +239,6 @@ pub struct OpenContract<'info> {
         bump
     )]
     pub contract: Account<'info, Contract>,
-    #[account(
-        init,
-        payer = payer,
-        space = 8 + SlugIndex::INIT_SPACE,
-        seeds = [SLUG_SEED, site.key().as_ref(), slug.as_ref()],
-        bump
-    )]
-    pub slug_index: Account<'info, SlugIndex>,
     #[account(
         constraint = payer_token_account.owner == payer.key(),
         constraint = payer_token_account.mint == site.mint,
@@ -307,7 +276,6 @@ pub struct MeterAndSettle<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(new_slug: [u8; SLUG_LEN])]
 pub struct RenewContract<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
@@ -320,21 +288,6 @@ pub struct RenewContract<'info> {
         bump = contract.bump
     )]
     pub contract: Account<'info, Contract>,
-    #[account(
-        mut,
-        close = payer,
-        seeds = [SLUG_SEED, site.key().as_ref(), contract.slug.as_ref()],
-        bump = contract.slug_bump
-    )]
-    pub old_slug_index: Account<'info, SlugIndex>,
-    #[account(
-        init,
-        payer = payer,
-        space = 8 + SlugIndex::INIT_SPACE,
-        seeds = [SLUG_SEED, site.key().as_ref(), new_slug.as_ref()],
-        bump
-    )]
-    pub new_slug_index: Account<'info, SlugIndex>,
     #[account(
         constraint = payer_token_account.owner == payer.key(),
         constraint = payer_token_account.mint == site.mint,
@@ -357,13 +310,6 @@ pub struct CloseContract<'info> {
         bump = contract.bump
     )]
     pub contract: Account<'info, Contract>,
-    #[account(
-        mut,
-        close = payer,
-        seeds = [SLUG_SEED, site.key().as_ref(), contract.slug.as_ref()],
-        bump = contract.slug_bump
-    )]
-    pub slug_index: Account<'info, SlugIndex>,
 }
 
 #[event]

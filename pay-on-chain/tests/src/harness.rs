@@ -97,17 +97,6 @@ pub fn contract_pda(site: &Pubkey, payer: &Pubkey) -> Pubkey {
     .0
 }
 
-pub fn slug_pda(site: &Pubkey, slug: &[u8; 16]) -> Pubkey {
-    Pubkey::find_program_address(&[b"slug", site.as_ref(), slug], &pay_on_chain::ID).0
-}
-
-/// Distinct, readable slugs so a failure names which one.
-pub fn slug(tag: u8) -> [u8; 16] {
-    let mut s = [b'a'; 16];
-    s[0] = tag;
-    s
-}
-
 impl Env {
     /// `payer_balance` is the payer's token balance, which is what a settle
     /// actually draws on.
@@ -219,13 +208,6 @@ impl Env {
             .unwrap_or(false)
     }
 
-    pub fn slug_resolves(&self, s: &[u8; 16]) -> bool {
-        self.svm
-            .get_account(&slug_pda(&self.site, s))
-            .map(|a| !a.data.is_empty())
-            .unwrap_or(false)
-    }
-
     pub fn token_balance(&self, addr: &Pubkey) -> u64 {
         let acct = self.svm.get_account(addr).expect("token account");
         spl_token::state::Account::unpack(&acct.data).expect("unpacks").amount
@@ -260,23 +242,18 @@ impl Env {
         .unwrap()
     }
 
-    pub fn ix_open(&self, s: &[u8; 16], limit: u64) -> Instruction {
+    pub fn ix_open(&self, limit: u64) -> Instruction {
         Instruction {
             program_id: pay_on_chain::ID,
             accounts: pay_on_chain::accounts::OpenContract {
                 payer: self.payer.pubkey(),
                 site: self.site,
                 contract: contract_pda(&self.site, &self.payer.pubkey()),
-                slug_index: slug_pda(&self.site, s),
                 payer_token_account: self.payer_ata,
                 system_program: system_program::ID,
             }
             .to_account_metas(None),
-            data: pay_on_chain::instruction::OpenContract {
-                slug: *s,
-                limit,
-            }
-            .data(),
+            data: pay_on_chain::instruction::OpenContract { limit }.data(),
         }
     }
 
@@ -298,35 +275,28 @@ impl Env {
         }
     }
 
-    pub fn ix_renew(&self, current: &[u8; 16], next: &[u8; 16], new_limit: u64) -> Instruction {
+    pub fn ix_renew(&self, new_limit: u64) -> Instruction {
         Instruction {
             program_id: pay_on_chain::ID,
             accounts: pay_on_chain::accounts::RenewContract {
                 payer: self.payer.pubkey(),
                 site: self.site,
                 contract: contract_pda(&self.site, &self.payer.pubkey()),
-                old_slug_index: slug_pda(&self.site, current),
-                new_slug_index: slug_pda(&self.site, next),
                 payer_token_account: self.payer_ata,
                 system_program: system_program::ID,
             }
             .to_account_metas(None),
-            data: pay_on_chain::instruction::RenewContract {
-                new_slug: *next,
-                new_limit,
-            }
-            .data(),
+            data: pay_on_chain::instruction::RenewContract { new_limit }.data(),
         }
     }
 
-    pub fn ix_close(&self, s: &[u8; 16]) -> Instruction {
+    pub fn ix_close(&self) -> Instruction {
         Instruction {
             program_id: pay_on_chain::ID,
             accounts: pay_on_chain::accounts::CloseContract {
                 payer: self.payer.pubkey(),
                 site: self.site,
                 contract: contract_pda(&self.site, &self.payer.pubkey()),
-                slug_index: slug_pda(&self.site, s),
             }
             .to_account_metas(None),
             data: pay_on_chain::instruction::CloseContract {}.data(),
@@ -336,8 +306,8 @@ impl Env {
     // --- convenience -------------------------------------------------------
 
     /// Approve and open in one transaction, the way a client must.
-    pub fn open(&mut self, s: &[u8; 16], limit: u64) -> Result<(), String> {
-        let ixs = [self.ix_approve(limit), self.ix_open(s, limit)];
+    pub fn open(&mut self, limit: u64) -> Result<(), String> {
+        let ixs = [self.ix_approve(limit), self.ix_open(limit)];
         let payer = self.payer.insecure_clone();
         self.send(&ixs, &[&payer], &payer.pubkey())
     }

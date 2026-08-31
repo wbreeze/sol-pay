@@ -28,7 +28,6 @@ mod bindings {
     use crate::core::ids;
     use crate::core::ix;
     use crate::core::pda;
-    use crate::core::slug::{Slug, SLUG_LEN};
 
     #[derive(Serialize)]
     struct JsAccountMeta {
@@ -72,10 +71,6 @@ mod bindings {
             .map_err(|e| JsError::new(&e.to_string()))
     }
 
-    fn parse_slug(s: &str) -> Result<Slug, JsError> {
-        Slug::parse(s).map_err(|e| JsError::new(&e.to_string()))
-    }
-
     #[wasm_bindgen(js_name = programAddress)]
     pub fn program_address() -> String {
         ids::PAY_ON_CHAIN_ID.to_string()
@@ -84,24 +79,6 @@ mod bindings {
     #[wasm_bindgen(js_name = tokenProgramAddress)]
     pub fn token_program_address() -> String {
         ids::TOKEN_PROGRAM_ID.to_string()
-    }
-
-    // --- slugs ------------------------------------------------------------
-
-    /// Turn 16 random bytes into the URL string. Get the bytes from
-    /// `crypto.getRandomValues(new Uint8Array(16))` — this crate does not
-    /// carry its own RNG.
-    #[wasm_bindgen(js_name = slugFromBytes)]
-    pub fn slug_from_bytes(bytes: &[u8]) -> Result<String, JsError> {
-        let arr: [u8; SLUG_LEN] = bytes
-            .try_into()
-            .map_err(|_| JsError::new(&format!("slug needs {SLUG_LEN} bytes, got {}", bytes.len())))?;
-        Ok(Slug::from_bytes(arr).to_string())
-    }
-
-    #[wasm_bindgen(js_name = slugToBytes)]
-    pub fn slug_to_bytes(slug: &str) -> Result<Vec<u8>, JsError> {
-        Ok(parse_slug(slug)?.as_bytes().to_vec())
     }
 
     // --- derivation -------------------------------------------------------
@@ -117,15 +94,6 @@ mod bindings {
         let site = key(site, "site")?;
         let payer = key(payer, "payer")?;
         Ok(pda::contract_address(&site, &payer).0.to_string())
-    }
-
-    /// The slug lookup a metered page request starts with: one hash here,
-    /// then a single `getAccountInfo` on the result.
-    #[wasm_bindgen(js_name = deriveSlugIndexAddress)]
-    pub fn derive_slug_index_address(site: &str, slug: &str) -> Result<String, JsError> {
-        let site = key(site, "site")?;
-        let slug = parse_slug(slug)?;
-        Ok(pda::slug_index_address(&site, &slug).0.to_string())
     }
 
     // --- instructions -----------------------------------------------------
@@ -190,14 +158,12 @@ mod bindings {
         site: &str,
         payer: &str,
         payer_token_account: &str,
-        slug: &str,
         limit: u64,
     ) -> Result<JsValue, JsError> {
         out(ix::open_contract(
             &key(site, "site")?,
             &key(payer, "payer")?,
             &key(payer_token_account, "payerTokenAccount")?,
-            &parse_slug(slug)?,
             limit,
         ))
     }
@@ -230,26 +196,18 @@ mod bindings {
         site: &str,
         payer: &str,
         payer_token_account: &str,
-        current_slug: &str,
-        new_slug: &str,
         new_limit: u64,
     ) -> Result<JsValue, JsError> {
         out(ix::renew_contract(
             &key(site, "site")?,
             &key(payer, "payer")?,
             &key(payer_token_account, "payerTokenAccount")?,
-            &parse_slug(current_slug)?,
-            &parse_slug(new_slug)?,
             new_limit,
         ))
     }
 
     #[wasm_bindgen(js_name = closeContract)]
-    pub fn close_contract(site: &str, payer: &str, slug: &str) -> Result<JsValue, JsError> {
-        out(ix::close_contract(
-            &key(site, "site")?,
-            &key(payer, "payer")?,
-            &parse_slug(slug)?,
-        ))
+    pub fn close_contract(site: &str, payer: &str) -> Result<JsValue, JsError> {
+        out(ix::close_contract(&key(site, "site")?, &key(payer, "payer")?))
     }
 }

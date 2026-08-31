@@ -3,11 +3,6 @@
 Status: draft, revised 2026-08-31. Written before implementation; sections 6.2
 onward describe code that does not exist yet.
 
-**The bump slug is gone from the design as of this revision.** The program and
-the client still carry it -- `Contract.slug`, `SlugIndex`, `SLUG_SEED`, a slug
-argument on three instructions, `core::slug` -- and removing them is the next
-change. Where this document and the code disagree about slugs, this document is
-the target and the code is behind.
 
 This specifies the client library that a site integrates. It is the companion
 to `state-machine.plantuml` at the repository root, which remains the
@@ -206,10 +201,8 @@ those ranges become the real compatibility contract on the day this ships.
 
 ### 6.1 Write path — exists
 
-Instruction builders in `core::ix`, address derivation in `core::pda`.
-Unchanged by this spec, except that `core::slug` and `slug_index_address` go
-away with the slug. Every builder stays public, so an integrator can compose
-transactions their own way.
+Instruction builders in `core::ix`, address derivation in `core::pda`. Every
+builder stays public, so an integrator can compose transactions their own way.
 
 ### 6.2 Read path — `core::state`, to be written
 
@@ -226,10 +219,6 @@ discriminator (`sha256("account:<Name>")[..8]`):
 | `Site` | authority `[u8;32]`, mint `[u8;32]`, treasury `[u8;32]`, page_price `u64`, collection_threshold `u64`, min_limit `u64`, bump `u8` | 129 |
 | `Contract` | site `[u8;32]`, payer `[u8;32]`, limit `u64`, used `u64`, paid `u64`, bump `u8` | 97 |
 
-`Contract` is shown as it will be once the slug is removed. The deployed
-account still carries `slug: [u8;16]` and `slug_bump: u8` and is 114 bytes;
-decoders are written against the 97-byte form and land with the program
-change, not before.
 
 ```rust
 impl Site     { pub fn decode(data: &[u8]) -> Result<Self, DecodeError>; }

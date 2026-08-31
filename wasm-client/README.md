@@ -9,12 +9,6 @@ split so the useful part is not tied to a browser:
   JavaScript. Enabled by the default `wasm` feature; turn it off
   (`--no-default-features`) to use the core from native Rust.
 
-> **Ahead of the code.** The bump slug was removed from the design on
-> 2026-08-31 and this README describes the result. The crate still carries
-> `core::slug`, `slug_index_address`, and a slug argument on `openContract`,
-> `renewContract` and `closeContract`; the program still stores one. Removing
-> them is the next change. See `SPEC.md` for the target and what is behind it.
-
 ## Building
 
 ```

@@ -1,7 +1,5 @@
 use anchor_lang::prelude::*;
 
-use crate::constants::SLUG_LEN;
-
 /// Per-site configuration. One per site authority, so a single deployment can
 /// serve several sites with different pricing.
 #[account]
@@ -32,8 +30,6 @@ pub struct Site {
 pub struct Contract {
     pub site: Pubkey,
     pub payer: Pubkey,
-    /// Current bump slug. Rotated on renewal.
-    pub slug: [u8; SLUG_LEN],
     /// Ceiling on `used`, authorized by the payer's delegate approval.
     pub limit: u64,
     /// Usage accrued, in mint base units.
@@ -41,9 +37,6 @@ pub struct Contract {
     /// Usage actually transferred to the treasury so far.
     pub paid: u64,
     pub bump: u8,
-    /// Bump of the SlugIndex PDA for `slug`, so renewal and close can
-    /// address it without re-deriving off-curve.
-    pub slug_bump: u8,
 }
 
 impl Contract {
@@ -57,15 +50,4 @@ impl Contract {
     pub fn outstanding(&self) -> u64 {
         self.limit.saturating_sub(self.paid)
     }
-}
-
-/// Maps a bump slug to its contract, so a page request resolves with one
-/// derive plus one account read rather than a getProgramAccounts scan.
-/// Existence of this PDA is also what makes a slug unique: initializing a
-/// second one with the same slug fails.
-#[account]
-#[derive(InitSpace)]
-pub struct SlugIndex {
-    pub contract: Pubkey,
-    pub bump: u8,
 }

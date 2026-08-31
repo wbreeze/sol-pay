@@ -12,7 +12,7 @@ use anchor_spl::token::spl_token;
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 
-use sol_pay_client::core::{ids, ix as client, pda, slug::Slug};
+use sol_pay_client::core::{ids, ix as client, pda};
 
 const DECIMALS: u8 = 6;
 const LIMIT: u64 = 500_000;
@@ -26,8 +26,6 @@ struct Fixture {
     treasury: Pubkey,
     payer_ata: Pubkey,
     site: Pubkey,
-    slug_a: Slug,
-    slug_b: Slug,
 }
 
 impl Fixture {
@@ -41,17 +39,11 @@ impl Fixture {
             treasury: Pubkey::new_unique(),
             payer_ata: Pubkey::new_unique(),
             site,
-            slug_a: Slug::from_bytes([7u8; 16]),
-            slug_b: Slug::from_bytes([9u8; 16]),
         }
     }
 
     fn contract(&self) -> Pubkey {
         pda::contract_address(&self.site, &self.payer).0
-    }
-
-    fn slug_index(&self, s: &Slug) -> Pubkey {
-        pda::slug_index_address(&self.site, s).0
     }
 }
 
@@ -126,13 +118,6 @@ fn client_derives_the_same_addresses() {
     )
     .0;
     assert_eq!(f.contract(), anchor_contract, "contract seeds");
-
-    let anchor_slug = Pubkey::find_program_address(
-        &[b"slug", f.site.as_ref(), f.slug_a.as_bytes()],
-        &pay_on_chain::ID,
-    )
-    .0;
-    assert_eq!(f.slug_index(&f.slug_a), anchor_slug, "slug index seeds");
 }
 
 #[test]
@@ -175,18 +160,13 @@ fn open_contract_matches() {
             payer: f.payer,
             site: f.site,
             contract: f.contract(),
-            slug_index: f.slug_index(&f.slug_a),
             payer_token_account: f.payer_ata,
             system_program: system_program::ID,
         }
         .to_account_metas(None),
-        data: pay_on_chain::instruction::OpenContract {
-            slug: *f.slug_a.as_bytes(),
-            limit: LIMIT,
-        }
-        .data(),
+        data: pay_on_chain::instruction::OpenContract { limit: LIMIT }.data(),
     };
-    let c = client::open_contract(&f.site, &f.payer, &f.payer_ata, &f.slug_a, LIMIT);
+    let c = client::open_contract(&f.site, &f.payer, &f.payer_ata, LIMIT);
     assert_same("open_contract", &c, &anchor);
 }
 
@@ -230,26 +210,13 @@ fn renew_contract_matches() {
             payer: f.payer,
             site: f.site,
             contract: f.contract(),
-            old_slug_index: f.slug_index(&f.slug_a),
-            new_slug_index: f.slug_index(&f.slug_b),
             payer_token_account: f.payer_ata,
             system_program: system_program::ID,
         }
         .to_account_metas(None),
-        data: pay_on_chain::instruction::RenewContract {
-            new_slug: *f.slug_b.as_bytes(),
-            new_limit: LIMIT,
-        }
-        .data(),
+        data: pay_on_chain::instruction::RenewContract { new_limit: LIMIT }.data(),
     };
-    let c = client::renew_contract(
-        &f.site,
-        &f.payer,
-        &f.payer_ata,
-        &f.slug_a,
-        &f.slug_b,
-        LIMIT,
-    );
+    let c = client::renew_contract(&f.site, &f.payer, &f.payer_ata, LIMIT);
     assert_same("renew_contract", &c, &anchor);
 }
 
@@ -262,12 +229,11 @@ fn close_contract_matches() {
             payer: f.payer,
             site: f.site,
             contract: f.contract(),
-            slug_index: f.slug_index(&f.slug_a),
         }
         .to_account_metas(None),
         data: pay_on_chain::instruction::CloseContract {}.data(),
     };
-    let c = client::close_contract(&f.site, &f.payer, &f.slug_a);
+    let c = client::close_contract(&f.site, &f.payer);
     assert_same("close_contract", &c, &anchor);
 }
 
@@ -303,22 +269,4 @@ fn hand_rolled_spl_instructions_match_spl_token() {
     let theirs = spl_token::instruction::revoke(&spl_token::ID, &f.payer_ata, &f.payer, &[]).unwrap();
     let ours = client::revoke(&spl_token::ID, &f.payer_ata, &f.payer);
     assert_same("revoke", &ours, &theirs);
-}
-
-/// The slug on chain is raw bytes; the slug in a URL is text. A round trip
-/// that lost a byte would silently point at the wrong contract.
-#[test]
-fn slug_encoding_round_trips_through_the_url_form() {
-    let bytes = [0u8, 255, 1, 254, 16, 32, 64, 128, 7, 9, 11, 13, 200, 201, 202, 203];
-    let s = Slug::from_bytes(bytes);
-    let text = s.encode();
-    assert_eq!(text.len(), 22);
-    assert_eq!(Slug::parse(&text).unwrap().as_bytes(), &bytes);
-
-    // and the address derived from either form is the same
-    let site = Pubkey::new_unique();
-    assert_eq!(
-        pda::slug_index_address(&site, &s).0,
-        pda::slug_index_address(&site, &Slug::parse(&text).unwrap()).0
-    );
 }

@@ -11,8 +11,7 @@ const RICH: u64 = 10_000_000;
 #[test]
 fn settles_only_once_the_threshold_is_crossed() {
     let mut env = Env::new(RICH);
-    let s = slug(b'a');
-    env.open(&s, LIMIT).unwrap();
+    env.open(LIMIT).unwrap();
 
     // One short of the threshold: usage accrues, nothing moves.
     for _ in 0..(VIEWS_TO_THRESHOLD - 1) {
@@ -36,8 +35,7 @@ fn residue_stays_below_the_threshold() {
     // This is the property that made the design's final-collection step
     // unreachable, so it is worth asserting rather than assuming.
     let mut env = Env::new(RICH);
-    let s = slug(b'b');
-    env.open(&s, LIMIT).unwrap();
+    env.open(LIMIT).unwrap();
 
     for _ in 0..137 {
         env.meter(1).unwrap();
@@ -54,8 +52,7 @@ fn residue_stays_below_the_threshold() {
 #[test]
 fn refuses_to_carry_usage_past_the_limit() {
     let mut env = Env::new(RICH);
-    let s = slug(b'c');
-    env.open(&s, LIMIT).unwrap();
+    env.open(LIMIT).unwrap();
 
     let views_to_limit = (LIMIT / PAGE_PRICE) as u32;
     env.meter(views_to_limit).unwrap();
@@ -71,8 +68,7 @@ fn settle_and_increment_fail_together() {
     // usage bump that would have justified it must not stick either.
     let short = THRESHOLD - PAGE_PRICE; // enough to accrue, not enough to pay
     let mut env = Env::new(short);
-    let s = slug(b'd');
-    env.open(&s, LIMIT).unwrap();
+    env.open(LIMIT).unwrap();
 
     for _ in 0..(VIEWS_TO_THRESHOLD - 1) {
         env.meter(1).unwrap();
@@ -94,10 +90,9 @@ fn settle_and_increment_fail_together() {
 #[test]
 fn open_requires_a_delegate_the_payer_actually_granted() {
     let mut env = Env::new(RICH);
-    let s = slug(b'e');
 
     // No approve at all.
-    let ix = env.ix_open(&s, LIMIT);
+    let ix = env.ix_open(LIMIT);
     let payer = env.payer.insecure_clone();
     assert_error(
         env.send(&[ix], &[&payer], &payer.pubkey()),
@@ -106,14 +101,14 @@ fn open_requires_a_delegate_the_payer_actually_granted() {
 
     // Approve, but to somebody else.
     let stranger = solana_pubkey::Pubkey::new_unique();
-    let ixs = [env.ix_approve_to(&stranger, LIMIT), env.ix_open(&s, LIMIT)];
+    let ixs = [env.ix_approve_to(&stranger, LIMIT), env.ix_open(LIMIT)];
     assert_error(
         env.send(&ixs, &[&payer], &payer.pubkey()),
         "DelegateMismatch",
     );
 
     // Approve the right delegate for too little.
-    let ixs = [env.ix_approve(LIMIT - 1), env.ix_open(&s, LIMIT)];
+    let ixs = [env.ix_approve(LIMIT - 1), env.ix_open(LIMIT)];
     assert_error(
         env.send(&ixs, &[&payer], &payer.pubkey()),
         "DelegateAllowanceTooLow",
@@ -125,16 +120,13 @@ fn open_requires_a_delegate_the_payer_actually_granted() {
 #[test]
 fn rejects_a_limit_below_the_site_minimum() {
     let mut env = Env::new(RICH);
-    let s = slug(b'f');
-    assert_error(env.open(&s, MIN_LIMIT - 1), "LimitBelowMinimum");
+    assert_error(env.open(MIN_LIMIT - 1), "LimitBelowMinimum");
 }
 
 #[test]
-fn renewal_rotates_the_slug_and_forgives_what_was_paid() {
+fn renewal_forgives_what_was_paid() {
     let mut env = Env::new(RICH);
-    let old = slug(b'g');
-    let new = slug(b'h');
-    env.open(&old, LIMIT).unwrap();
+    env.open(LIMIT).unwrap();
 
     // Two calls, deliberately: one that settles, then a few views under the
     // threshold. A single 53-view call would transfer the lot and leave no
@@ -146,10 +138,7 @@ fn renewal_rotates_the_slug_and_forgives_what_was_paid() {
     let residue = before.used - before.paid;
     assert!(residue > 0);
 
-    let ixs = [
-        env.ix_approve(LIMIT),
-        env.ix_renew(&old, &new, LIMIT),
-    ];
+    let ixs = [env.ix_approve(LIMIT), env.ix_renew(LIMIT)];
     let payer = env.payer.insecure_clone();
     env.send(&ixs, &[&payer], &payer.pubkey()).unwrap();
 
@@ -157,44 +146,23 @@ fn renewal_rotates_the_slug_and_forgives_what_was_paid() {
     assert_eq!(after.used, residue, "only the unpaid residue carries over");
     assert_eq!(after.paid, 0);
     assert_eq!(after.limit, LIMIT);
-    assert_eq!(&after.slug, &new);
-
-    assert!(!env.slug_resolves(&old), "the old URL stops resolving");
-    assert!(env.slug_resolves(&new), "the new URL resolves");
-}
-
-#[test]
-fn a_slug_cannot_be_claimed_twice() {
-    // Uniqueness is enforced by the index PDA existing, not by the generator.
-    let mut env = Env::new(RICH);
-    let s = slug(b'i');
-    env.open(&s, LIMIT).unwrap();
-
-    let ixs = [env.ix_approve(LIMIT), env.ix_renew(&s, &s, LIMIT)];
-    let payer = env.payer.insecure_clone();
-    assert!(
-        env.send(&ixs, &[&payer], &payer.pubkey()).is_err(),
-        "reusing a live slug must fail"
-    );
 }
 
 #[test]
 fn close_leaves_the_residue_uncollected() {
     let mut env = Env::new(RICH);
-    let s = slug(b'j');
-    env.open(&s, LIMIT).unwrap();
+    env.open(LIMIT).unwrap();
 
     env.meter(3).unwrap(); // below the threshold, so nothing was collected
     let residue = env.contract().used;
     assert!(residue > 0 && residue < THRESHOLD);
     assert_eq!(env.token_balance(&env.treasury), 0);
 
-    let ix = env.ix_close(&s);
+    let ix = env.ix_close();
     let payer = env.payer.insecure_clone();
     env.send(&[ix], &[&payer], &payer.pubkey()).unwrap();
 
     assert!(!env.contract_exists());
-    assert!(!env.slug_resolves(&s));
     assert_eq!(
         env.token_balance(&env.treasury),
         0,
@@ -205,8 +173,7 @@ fn close_leaves_the_residue_uncollected() {
 #[test]
 fn metering_needs_the_site_authority() {
     let mut env = Env::new(RICH);
-    let s = slug(b'k');
-    env.open(&s, LIMIT).unwrap();
+    env.open(LIMIT).unwrap();
 
     // The payer is not the server and must not be able to meter.
     let ix = env.ix_meter(1);
@@ -223,8 +190,7 @@ fn metering_needs_the_site_authority() {
 fn approve_replaces_rather_than_adds_to_the_allowance() {
     // Renewal depends on this: it passes the new limit outright.
     let mut env = Env::new(RICH);
-    let s = slug(b'l');
-    env.open(&s, LIMIT).unwrap();
+    env.open(LIMIT).unwrap();
     assert_eq!(env.delegated_amount(&env.payer_ata), LIMIT);
 
     let ix = env.ix_approve(MIN_LIMIT);

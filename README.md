@@ -101,8 +101,8 @@ In the state diagram, the happy path has bold lines. It goes like this:
   invokes a transfer from the viewer's wallet
 - the server delivers the metered page
 
-Viewers the site cannot place go to the sign-up page. It includes details
-about the contract and may allow the viewer to select a limit. Sign-up creates
+Viewers the site cannot place go to the set-meter page. It includes details
+about the cost and lets the viewer choose a limit. Setting the meter creates
 the contract account and takes the payer's authorization of the spend, both in
 one transaction -- the authorization has to come first, and the program checks
 that it did.

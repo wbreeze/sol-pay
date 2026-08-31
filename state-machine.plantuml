@@ -9,43 +9,36 @@ state screen #cyan
 screen : visible or interactive content
 
 state identified <<choice>>
-state sign_up #cyan
-state create_account
+state set_meter #cyan
 state find_contract
 state authorize #yellow
 state open_contract #pink
 state metered_page #cyan
 state meter_and_settle #pink
 state check_limit <<choice>>
-state account_page #cyan
+state manage_meter #cyan
 state renew_contract #pink
 state close_contract #pink
 
 [*] -[bold]-> identified : navigate
-identified --> sign_up : viewer not identified
+identified --> set_meter : viewer not identified
 identified -[bold]-> find_contract : viewer's wallet address known
 
 find_contract : derive the contract address from site and wallet address
 find_contract : read the account
-find_contract -> sign_up : no contract
+find_contract -> set_meter : no contract
 find_contract -[bold]-> check_limit : contract found
 
-sign_up : inform cost per fetch
-sign_up : prompt limit amount
-sign_up : enforce minimum on limit amount
-sign_up --> create_account : sign up
-
-create_account : enforce minimum on limit amount
-create_account : limit amount
-create_account : zero paid amount
-create_account : zero used amount
-create_account --> authorize
+set_meter : inform cost per fetch
+set_meter : prompt limit amount
+set_meter : enforce minimum on limit amount
+set_meter --> authorize : set the meter
 
 authorize : payer wallet authorizes spending up to the limit
-authorize : reused for both initial sign-up and limit renewal
-authorize -> sign_up : wallet cancelled (sign-up)
-authorize --> open_contract : wallet signed (sign-up)
-authorize -> account_page : wallet cancelled (renewal)
+authorize : reused for the first setting and for every renewal
+authorize -> set_meter : wallet cancelled (first setting)
+authorize --> open_contract : wallet signed (first setting)
+authorize -> manage_meter : wallet cancelled (renewal)
 authorize -[bold]-> [*] : wallet signed (renewal), navigate
 
 open_contract : create the contract for this site and payer
@@ -59,19 +52,19 @@ meter_and_settle : if unpaid balance crosses collection threshold,
 meter_and_settle : transfer the entire unpaid balance in same instruction
 meter_and_settle : increment and transfer succeed or fail together (atomic)
 meter_and_settle -[bold]-> metered_page : instruction succeeded
-meter_and_settle --> account_page : instruction failed (insufficient funds)
+meter_and_settle --> manage_meter : instruction failed (insufficient funds)
 
-check_limit -> account_page : limit reached
+check_limit -> manage_meter : limit reached
 check_limit -[bold]-> meter_and_settle : meter below limit
 
-account_page: show current limit, cost per page
-account_page: show used and paid amount
-account_page: to change wallets, delete the account and sign-up with the new wallet
-account_page: prompt new limit for renewal
-account_page: enforce minimum on limit amount
-account_page -> [*] : navigate
-account_page --> renew_contract : renew
-account_page --> close_contract : delete
+manage_meter: show current limit, cost per page
+manage_meter: show used and paid amount
+manage_meter: to change wallets, close the contract and set a meter with the new wallet
+manage_meter: prompt new limit for renewal
+manage_meter: enforce minimum on limit amount
+manage_meter -> [*] : navigate
+manage_meter --> renew_contract : renew
+manage_meter --> close_contract : delete
 
 renew_contract: enforce minimum on limit amount
 renew_contract: reduce used amount by paid amount

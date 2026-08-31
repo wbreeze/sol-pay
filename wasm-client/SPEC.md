@@ -17,7 +17,7 @@ disagree, the diagram is right and this document is a bug.
 ## 1. What this is
 
 A library, not an application. sol-pay ships no user interface. The cyan nodes
-in the state diagram -- `sign_up`, `account_page`, `metered_page` -- are
+in the state diagram -- `set_meter`, `manage_meter`, `metered_page` -- are
 screens the *integrator* builds. They appear in the design only to establish
 what the library owes them:
 
@@ -29,6 +29,13 @@ Nothing else. The library does not route, render, format, or decide.
 **Out of scope, decided 2026-08-31: identifying the viewer.** The library takes
 a wallet address and says nothing about how the integrator obtained it. The
 rationale is in §4.
+
+**Metering is an additional way to pay, not a replacement for the ones a site
+already has.** A publisher with subscriptions keeps them. Metering is what it
+offers the reader who will not subscribe -- the one who arrived from a link,
+wants one article, and would otherwise bounce off the paywall. Nothing in this
+library assumes it is the only way a viewer can reach the content, and the
+integration consequences of that are in §4.4.
 
 ## 2. The design rule
 
@@ -56,10 +63,9 @@ these completely and no integrator should reimplement them:
 
 - what limit to suggest or offer
 - how to format an amount, or in what currency to display it
-- when to show an account page, redirect, or block
+- when to show the meter, redirect, or block
 - whether metering is per view, per article, or batched
 - **how the server identifies the visitor** (§4)
-- whether sign-in precedes sign-up
 - what to do when a payment fails
 
 If a future API would decide any of the above, it does not belong here.
@@ -80,11 +86,12 @@ The server never holds the payer's key; the browser never holds the site
 authority. `meter_and_settle` is the only instruction the site signs, and the
 program enforces it (`has_one = authority`).
 
-## 4. Identifying the viewer is not this library's job
+## 4. What the integrator owns
 
-This section exists because the library must not force a site to abandon the
-login it already has, and because an earlier draft of this design tried to
-solve identity on the site's behalf.
+Two things sit outside this library that an integrator has to get right
+anyway: knowing who the viewer is, and deciding whether this request should be
+metered at all. Neither is ours. This section says so explicitly, because an
+earlier draft of the design tried to solve the first on the site's behalf.
 
 ### 4.1 The payment core needs one input
 
@@ -145,6 +152,38 @@ property of putting a spend meter on a public ledger, not a defect, and no
 client library can change it. Integrators whose viewers would care should be
 told plainly rather than reassured.
 
+### 4.4 Coexisting with a subscription
+
+The state diagram draws the metered path. It does not draw the decision that
+precedes it -- whether this request should be metered at all -- because that
+decision belongs to the site and will usually be made against a subscription
+or entitlement the library knows nothing about.
+
+Three consequences for an integrator running both:
+
+**A contract is not a viewer type.** Someone may hold a subscription and a
+contract at once: a subscriber reading outside their tier, or a metered reader
+who subscribes later and whose contract is still open. Keying access control
+off "has a contract" will eventually charge a subscriber. The contract answers
+what a viewer has authorized, never whether they are entitled to the page.
+
+**Metering the same view twice is the site's problem to avoid.** The program
+meters whatever `page_views` the authority passes and has no idea the viewer
+also has a subscription. The library's `can_meter` reports whether a charge
+would succeed, not whether it should happen. Only the site knows that.
+
+**Ending a meter takes two instructions, not one.** When a metered reader
+subscribes, the site will want the meter to stop. Simply not calling
+`meter_and_settle` is not enough: the payer's delegate approval stays in place,
+and because a token account has exactly one delegate, that dormant approval
+blocks the payer from opening a contract with any other site. Close the
+contract *and* revoke -- which is what `close_contract_tx` does (§6.5).
+
+Closing forgives the residue, so the site absorbs whatever was unpaid. That is
+bounded below the collection threshold by construction, so it is small, but it
+is not nothing, and it is a real cost of converting a metered reader into a
+subscriber.
+
 ## 5. Two published artifacts
 
 Decided 2026-08-31.
@@ -174,7 +213,7 @@ transactions their own way.
 
 ### 6.2 Read path — `core::state`, to be written
 
-Nothing in the library reads chain state today, so `account_page` cannot be
+Nothing in the library reads chain state today, so `manage_meter` cannot be
 rendered by a consumer at all: its "show current limit, cost per page, used and
 paid amount" spans the `Contract` and `Site` accounts and we export no way to
 decode either.
@@ -226,7 +265,7 @@ not one an integrator can audit.
 ### 6.3 Preflight — `core::preflight`, to be written
 
 The choice nodes in the diagram are arithmetic over `Contract` and `Site`, and
-the minimum-limit rule appears at four places in the flow. If each integrator
+the minimum-limit rule appears at three places in the flow. If each integrator
 reimplements them they drift from the program, and the drift surfaces as a
 rejected transaction the payer paid fees for.
 
@@ -248,7 +287,7 @@ Each mirrors one on-chain check exactly:
 - `limit_floor` -> `max(site.min_limit, contract.unpaid())`, taking the second
   term as zero when there is no contract. That single expression is both
   renewal requirements at once -- at or above the site minimum, and covering
-  usage carried forward -- and degenerates to the sign-up rule when the
+  usage carried forward -- and degenerates to the opening rule when the
   `Option` is `None`
 - `required_allowance` -> the full limit; nothing is paid against a new limit
   yet, so the allowance must cover all of it
@@ -257,7 +296,7 @@ Each mirrors one on-chain check exactly:
 renewal-limit pair. The question is identical on both screens -- what is the
 smallest value I can accept here -- and the `Option` carries state the caller
 already holds, since `find_contract` either produced a contract or did not.
-Two functions would invite calling the sign-up one on the renewal screen,
+Two functions would invite calling the opening one on the renewal screen,
 which passes `site.min_limit`, sits below `unpaid`, and fails with
 `LimitBelowUsage` only after the payer has approved and signed. One function
 makes that unrepresentable.

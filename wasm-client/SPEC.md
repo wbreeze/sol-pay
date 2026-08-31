@@ -3,6 +3,12 @@
 Status: draft, revised 2026-08-31. Written before implementation; sections 6.2
 onward describe code that does not exist yet.
 
+**The bump slug is gone from the design as of this revision.** The program and
+the client still carry it -- `Contract.slug`, `SlugIndex`, `SLUG_SEED`, a slug
+argument on three instructions, `core::slug` -- and removing them is the next
+change. Where this document and the code disagree about slugs, this document is
+the target and the code is behind.
+
 This specifies the client library that a site integrates. It is the companion
 to `state-machine.plantuml` at the repository root, which remains the
 authoritative description of the flow. Where this document and the diagram
@@ -20,8 +26,9 @@ what the library owes them:
 
 Nothing else. The library does not route, render, format, or decide.
 
-**Out of scope, decided 2026-08-31: gifting a page view by sharing a link.**
-The rationale is in §4.4.
+**Out of scope, decided 2026-08-31: identifying the viewer.** The library takes
+a wallet address and says nothing about how the integrator obtained it. The
+rationale is in §4.
 
 ## 2. The design rule
 
@@ -37,7 +44,7 @@ Wrong here costs a failed transaction and a real fee, so the library owns
 these completely and no integrator should reimplement them:
 
 - instruction encoding, account order, and Anchor discriminators
-- PDA derivation for site, contract, and slug index
+- PDA derivation for site and contract
 - account layout and decoding
 - the rule that `approve` must precede `open_contract` / `renew_contract` in
   the same transaction
@@ -66,79 +73,77 @@ A site running sol-pay executes code in two places, with different needs.
 
 | | signs | needs | artifact |
 | --- | --- | --- | --- |
-| Browser | payer, via wallet adapter | `approve_checked`, `open_contract`, `renew_contract`, `close_contract`, `revoke`, decoders, preflight, sign-in message | npm package |
+| Browser | payer, via wallet adapter | `approve_checked`, `open_contract`, `renew_contract`, `close_contract`, `revoke`, decoders, preflight | npm package |
 | Server | site authority | `meter_and_settle`, `initialize_site`, decoders, preflight | crates.io crate |
 
 The server never holds the payer's key; the browser never holds the site
 authority. `meter_and_settle` is the only instruction the site signs, and the
 program enforces it (`has_one = authority`).
 
-## 4. Session resolution
+## 4. Identifying the viewer is not this library's job
 
 This section exists because the library must not force a site to abandon the
-login it already has.
+login it already has, and because an earlier draft of this design tried to
+solve identity on the site's behalf.
 
-### 4.1 The slug is not in the payment path
+### 4.1 The payment core needs one input
 
-`meter_and_settle` takes the payer's address and derives the contract from
-`[b"contract", site, payer]`. Its eight accounts include no slug index. The
-slug appears only in `open_contract`, `renew_contract`, and `close_contract`,
-and there only to maintain the index that maps a slug to a contract.
+`meter_and_settle` derives the contract from `[b"contract", site, payer]`. Its
+eight accounts carry no session token of any kind. `open_contract`,
+`renew_contract` and `close_contract` are the same: the payer signs, and the
+payer's address is the seed.
 
-So the slug does not make payment work. It answers a different question, and
-the two are separable:
+So the payment core needs exactly one thing from the integrator: **the payer's
+wallet address**. Two questions are cleanly separable, and only the second is
+ours:
 
-- **Who is this visitor?** — session resolution. Site's choice.
-- **What do they owe?** — the payment core. The library's job.
+- **Who is this visitor?** — the site's own affair. Accounts, login, SSO,
+  whatever they already run.
+- **What do they owe?** — the payment core.
 
-The payment core needs exactly one thing from the integrator: **the payer's
-wallet address**. How the site learned it is not the library's business.
+The integrator's obligation is therefore a single sentence: *keep a mapping
+from your viewer to a wallet address, and hand us the address.* Everything the
+library does starts from there.
 
-### 4.2 Three strategies, none privileged
+### 4.2 What this replaces
 
-**A. The site's existing session.** A site with accounts, login, or SSO
-already authenticates its users. It adds a wallet address to the user record
-and is done. No slug, no new session mechanism, nothing to migrate. This is
-expected to be the common case for an established publisher, and it needs
-nothing from the library beyond the payment core.
+Earlier revisions specified a "bump slug": a random token in the URL path,
+indexed on chain by a `SlugIndex` PDA, that resolved a request to a contract
+without the site holding any session state. It carried two justifications and
+neither survived.
 
-**B. Wallet sign-in.** The visitor proves control of the wallet, the site
-holds an authenticated session. See §6.6. This is the option for a site with
-no existing account system that wants one.
-
-**C. Slug in the URL.** No server-side session state at all. A random token in
-the path resolves to the contract in one derive plus one account read. This is
-the strategy the state diagram draws, and the library implements it, but it is
-one option and not the default posture.
-
-### 4.3 What strategy C actually buys
-
-The original motivation was avoiding a cookie-consent banner. That
-motivation is weaker than it looks: authentication session cookies are the
+**Avoiding a cookie-consent banner.** Authentication session cookies are the
 textbook "strictly necessary" case under the ePrivacy Directive and need no
-banner, provided they are used *only* for authentication and are session
-cookies rather than persistent "remember me" tokens. A site that logs users in
-is already banner-free on that count.
+banner, provided they are used only for authentication and are session rather
+than persistent "remember me" cookies. A site that logs people in was already
+clear on that count. (Not legal advice; the integrator's counsel decides.)
 
-The claim that survives is narrower and more interesting: **strategy C needs
-no server-side session state whatsoever.** That is a real architectural
-property and worth offering. It is not a legal shortcut, and this document
-should not be read as legal advice.
+**Gifting a page view by sharing a link.** A slug in a URL is a bearer token
+for the payer's *entire remaining balance*, so sharing one gifts the balance
+rather than an article. The familiar publisher feature -- a one-time, expiring,
+single-article gift link -- is a different mechanism, and if it is ever wanted
+it should be built in that shape.
 
-### 4.4 Sharing is out of scope
+Removing the slug also removes a defect. Because `Contract.slug` was a plain
+field in a public account and the contract PDA derives from public seeds, every
+contract was enumerable -- one `getProgramAccounts` on the discriminator, or
+the program's own transaction history -- and each hit yielded a working bearer
+token. A third party could consume any payer's balance to the limit. That is
+theft of service rather than of funds, since the money reaches the site
+treasury, which makes a content scraper the likelier actor than a vandal. No
+slug, nothing to steal.
 
-A slug in a URL is a bearer token for the payer's *entire remaining balance*.
-Sharing a link does not gift an article; it gifts everything up to the limit,
-for as long as the slug lives.
+What is genuinely given up: a site can no longer run sol-pay with **no**
+server-side session state. Every integrator now keeps a viewer-to-wallet
+mapping. That was a real property and it is being traded deliberately.
 
-The familiar publisher feature -- NYT-style gift links -- is a different
-mechanism: one-time, expiring, scoped to a single article. If gifting is ever
-wanted, it should be built in that shape, where the exposure is one article
-rather than a balance.
+### 4.3 What remains public
 
-Consequence: **the slug is a secret, not a shareable token.** That is a change
-in kind, and it makes the storage defect in §9.2 a live problem rather than an
-accepted trade-off.
+Contracts stay readable by anyone: given a site and a wallet address, the
+limit, used and paid figures are on chain in the clear. That is a visibility
+property of putting a spend meter on a public ledger, not a defect, and no
+client library can change it. Integrators whose viewers would care should be
+told plainly rather than reassured.
 
 ## 5. Two published artifacts
 
@@ -162,9 +167,10 @@ those ranges become the real compatibility contract on the day this ships.
 
 ### 6.1 Write path — exists
 
-Instruction builders in `core::ix`, address derivation in `core::pda`, slug
-encoding in `core::slug`. Unchanged by this spec. Every builder stays public so
-an integrator can compose transactions their own way.
+Instruction builders in `core::ix`, address derivation in `core::pda`.
+Unchanged by this spec, except that `core::slug` and `slug_index_address` go
+away with the slug. Every builder stays public, so an integrator can compose
+transactions their own way.
 
 ### 6.2 Read path — `core::state`, to be written
 
@@ -179,15 +185,18 @@ discriminator (`sha256("account:<Name>")[..8]`):
 | account | fields | bytes |
 | --- | --- | --- |
 | `Site` | authority `[u8;32]`, mint `[u8;32]`, treasury `[u8;32]`, page_price `u64`, collection_threshold `u64`, min_limit `u64`, bump `u8` | 129 |
-| `Contract` | site `[u8;32]`, payer `[u8;32]`, slug `[u8;16]`, limit `u64`, used `u64`, paid `u64`, bump `u8`, slug_bump `u8` | 114 |
-| `SlugIndex` | contract `[u8;32]`, bump `u8` | 41 |
+| `Contract` | site `[u8;32]`, payer `[u8;32]`, limit `u64`, used `u64`, paid `u64`, bump `u8` | 97 |
+
+`Contract` is shown as it will be once the slug is removed. The deployed
+account still carries `slug: [u8;16]` and `slug_bump: u8` and is 114 bytes;
+decoders are written against the 97-byte form and land with the program
+change, not before.
 
 ```rust
 impl Site     { pub fn decode(data: &[u8]) -> Result<Self, DecodeError>; }
 impl Contract { pub fn decode(data: &[u8]) -> Result<Self, DecodeError>;
                 pub fn unpaid(&self) -> u64;        // used - paid
                 pub fn outstanding(&self) -> u64; } // limit - paid
-impl SlugIndex{ pub fn decode(data: &[u8]) -> Result<Self, DecodeError>; }
 
 /// SPL mint decimals, one byte at a fixed offset. `approve_checked` needs it
 /// and there is nowhere else to get it without decoding a mint by hand.
@@ -247,9 +256,9 @@ Each mirrors one on-chain check exactly:
 `limit_floor` is deliberately one function rather than an open-limit and a
 renewal-limit pair. The question is identical on both screens -- what is the
 smallest value I can accept here -- and the `Option` carries state the caller
-already holds, since `slug_lookup` and `sign_in` either produced a contract or
-did not. Two functions would invite calling the sign-up one on the renewal
-screen, which passes `site.min_limit`, sits below `unpaid`, and fails with
+already holds, since `find_contract` either produced a contract or did not.
+Two functions would invite calling the sign-up one on the renewal screen,
+which passes `site.min_limit`, sits below `unpaid`, and fails with
 `LimitBelowUsage` only after the payer has approved and signed. One function
 makes that unrepresentable.
 
@@ -354,9 +363,14 @@ stays visible in the payer's wallet until withdrawn.
 ### 6.6 Wallet sign-in — documented, not shipped
 
 Decided 2026-08-31: **the library does not implement SIWS verification.** This
-section specifies what an integrator must do, and names what to do it with.
+section specifies what an integrator may use, and names what to use.
 
-Strategy B from §4.2. Sign In With Solana is a `signIn` feature in the Wallet
+It is one option, not a requirement, and it is deliberately absent from the
+state diagram: per §4 the library is silent on how a viewer is identified. It
+appears here because a site with no account system will ask, and because the
+answer has sharp edges.
+
+Sign In With Solana is a `signIn` feature in the Wallet
 Standard: the site builds a structured message -- domain, address, statement,
 uri, version, chainId, nonce, issuedAt, expirationTime, requestId, resources --
 the wallet displays and signs it, and the server verifies the signature against
@@ -440,39 +454,6 @@ own deployment then cannot use the published package at all. An override
 defaulting to the canonical id costs little and removes a reason to reject the
 library.
 
-### 9.2 The slug is stored in the clear — program change proposed
-
-`Contract.slug` is a plain field in a public account, and the contract PDA is
-derived from `[b"contract", site, payer]` where both seeds are public. Every
-contract is enumerable from the program's transaction history or one
-`getProgramAccounts` on the discriminator, and each hit yields a working slug.
-
-While sharing was in scope this was a trade-off. With sharing out of scope
-(§4.4) it is a defect: under strategy C, a third party can consume a payer's
-balance to the limit, obtaining metered content the payer pays for. The funds
-reach the site treasury, so this is theft of service rather than theft of
-funds, and a content scraper is a likelier actor than a vandal.
-
-Proposed fix, not yet applied, and it touches merged on-chain code:
-
-- drop `slug` (and `slug_bump`) from `Contract`
-- take the current slug as an *argument* to `renew_contract` and
-  `close_contract`
-- derive the slug index from that argument, and require
-  `slug_index.contract == contract.key()`
-
-That last constraint proves the caller holds the contract's real slug, which is
-exactly what the seed check proves today, so nothing is weakened. No stored
-hash is needed.
-
-Cost: sign-in can no longer recover a lost slug from chain state. Acceptable --
-strategies A and B identify the payer without a slug, and a strategy C site
-whose payer loses the slug can renew, which rotates it.
-
-Until this is applied, strategy C's exposure must be documented for
-integrators, and the only available mitigation is rate limiting at the site's
-request layer -- a mitigation, not a fix, and defeated by a distributed client.
-
-### 9.3 Does WASM discourage adoption; should a plain-JS package exist?
+### 9.2 Does WASM discourage adoption; should a plain-JS package exist?
 
 Raised, deferred, not analysed.

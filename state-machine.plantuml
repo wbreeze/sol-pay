@@ -8,40 +8,32 @@ wallet : payer wallet interaction
 state screen #cyan
 screen : visible or interactive content
 
-state bumpslugcheck <<choice>>
+state identified <<choice>>
 state sign_up #cyan
 state create_account
-state sign_in #yellow
-state slug_lookup
+state find_contract
 state authorize #yellow
-state add_wallet #pink
-state metered_page
+state open_contract #pink
+state metered_page #cyan
 state meter_and_settle #pink
 state check_limit <<choice>>
 state account_page #cyan
-state metered_page #cyan
-state increment_limit #pink
-state delete_account #pink
+state renew_contract #pink
+state close_contract #pink
 
-[*] -[bold]-> bumpslugcheck : navigate
-bumpslugcheck --> sign_up : no bump slug
-bumpslugcheck -[bold]-> slug_lookup : has bump slug
+[*] -[bold]-> identified : navigate
+identified --> sign_up : viewer not identified
+identified -[bold]-> find_contract : viewer's wallet address known
 
-slug_lookup : find account using slug
-slug_lookup -> sign_up : account not found
-slug_lookup -[bold]-> check_limit : account found
+find_contract : derive the contract address from site and wallet address
+find_contract : read the account
+find_contract -> sign_up : no contract
+find_contract -[bold]-> check_limit : contract found
 
 sign_up : inform cost per fetch
 sign_up : prompt limit amount
 sign_up : enforce minimum on limit amount
-sign_up : or sign-in with your wallet
 sign_up --> create_account : sign up
-sign_up --> sign_in : sign in
-
-sign_in : payer wallet authorizes sign-in
-sign_in : find account using payer wallet address
-sign_in --> check_limit : account found
-sign_in --> sign_up : account not found
 
 create_account : enforce minimum on limit amount
 create_account : limit amount
@@ -49,19 +41,18 @@ create_account : zero paid amount
 create_account : zero used amount
 create_account --> authorize
 
-authorize : payer wallet authorizes contract with limit
+authorize : payer wallet authorizes spending up to the limit
 authorize : reused for both initial sign-up and limit renewal
 authorize -> sign_up : wallet cancelled (sign-up)
-authorize --> add_wallet : wallet signed (sign-up)
+authorize --> open_contract : wallet signed (sign-up)
 authorize -> account_page : wallet cancelled (renewal)
-authorize -[bold]-> [*] : wallet signed (renewal), navigate with slug
+authorize -[bold]-> [*] : wallet signed (renewal), navigate
 
-add_wallet : create a slug
-add_wallet : update account with wallet address and slug
-add_wallet --> check_limit
+open_contract : create the contract for this site and payer
+open_contract --> check_limit
 
 metered_page : display metered content as navigated
-metered_page -[bold]-> [*] : navigate with slug
+metered_page -[bold]-> [*] : navigate
 
 meter_and_settle : bump used amount on account by page increment
 meter_and_settle : if unpaid balance crosses collection threshold,
@@ -78,30 +69,29 @@ account_page: show used and paid amount
 account_page: to change wallets, delete the account and sign-up with the new wallet
 account_page: prompt new limit for renewal
 account_page: enforce minimum on limit amount
-account_page -> [*] : navigate with slug
-account_page --> increment_limit : renew
-account_page --> delete_account : delete
+account_page -> [*] : navigate
+account_page --> renew_contract : renew
+account_page --> close_contract : delete
 
-increment_limit: enforce minimum on limit amount
-increment_limit: reduce used amount by paid amount
-increment_limit: zero paid amount
-increment_limit: set new limit amount
-increment_limit: generate new slug
-increment_limit --> authorize : re-authorize new limit
+renew_contract: enforce minimum on limit amount
+renew_contract: reduce used amount by paid amount
+renew_contract: zero paid amount
+renew_contract: set new limit amount
+renew_contract --> authorize : re-authorize new limit
 
-delete_account : meter_and_settle takes the entire unpaid balance,
-delete_account : so residue is always below the collection threshold
-delete_account : leave the residue uncollected (take the loss)
-delete_account --> [*] : navigate without slug
+close_contract : meter_and_settle takes the entire unpaid balance,
+close_contract : so residue is always below the collection threshold
+close_contract : leave the residue uncollected (take the loss)
+close_contract --> [*] : navigate
 
 legend left
 Colour says what kind of step it is, not who runs it.
 The pink (on chain) steps divide by signer:
-  payer signs .......... add_wallet, increment_limit, delete_account
+  payer signs .......... open_contract, renew_contract, close_contract
   site authority signs . meter_and_settle
-The slug is one way for the server to identify the payer, not the only one.
-A site with its own login or SSO uses that instead; see wasm-client/SPEC.md
-section 4.
+Identifying the viewer is the integrator's own business. This diagram assumes
+only that the site can map the viewer to a wallet address; see
+wasm-client/SPEC.md section 4.
 endlegend
 
 @enduml

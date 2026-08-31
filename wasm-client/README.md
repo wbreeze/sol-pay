@@ -3,11 +3,17 @@
 Instruction builders for the `pay-on-chain` metering program. The crate is
 split so the useful part is not tied to a browser:
 
-- `src/core/` — addresses, slugs, instruction construction. Plain Rust, no
+- `src/core/` — addresses, instruction construction. Plain Rust, no
   wasm, no I/O. A Leptos/Yew front end, a native tool, or a test can use it.
 - `src/lib.rs` — a thin `wasm-bindgen` layer that converts to and from
   JavaScript. Enabled by the default `wasm` feature; turn it off
   (`--no-default-features`) to use the core from native Rust.
+
+> **Ahead of the code.** The bump slug was removed from the design on
+> 2026-08-31 and this README describes the result. The crate still carries
+> `core::slug`, `slug_index_address`, and a slug argument on `openContract`,
+> `renewContract` and `closeContract`; the program still stores one. Removing
+> them is the next change. See `SPEC.md` for the target and what is behind it.
 
 ## Building
 
@@ -23,25 +29,26 @@ Instructions come out matching `@solana/kit`'s `IInstruction`, so they drop
 straight into a transaction message:
 
 ```js
-import init, { openContract, approveChecked, slugFromBytes } from './pkg/sol_pay_client.js';
+import init, { openContract, approveChecked } from './pkg/sol_pay_client.js';
 await init();
-
-const bytes = crypto.getRandomValues(new Uint8Array(16));
-const slug = slugFromBytes(bytes);
 
 // approve must come first: it is what makes the payer chargeable later.
 const ixs = [
   approveChecked(tokenProgram, payerAta, mint, payer, site, limit, 6),
-  openContract(site, payer, payerAta, slug, limit),
+  openContract(site, payer, payerAta, limit),
 ];
 ```
+
+The payer's wallet address is the only thing the library needs to identify a
+contract. Where that address came from -- a login, an SSO session, a wallet
+sign-in -- is the site's business, and this crate has no opinion about it. See
+`SPEC.md` §4.
 
 Signing is deliberately not here. Wallet Standard is browser JavaScript, so
 the wallet adapter assembles and signs; this crate decides *what* gets signed.
 
-Randomness is also not here. Slug bytes come from the caller
-(`crypto.getRandomValues` in a browser), which keeps the crate free of a
-`getrandom` backend for `wasm32-unknown-unknown`.
+Nor is randomness, or any other source of ambient state: every function in the
+crate is a pure function of its arguments.
 
 ## Four things to know
 

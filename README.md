@@ -79,41 +79,33 @@ See also, the [x402 protocol][x402] from Coinbase.
 This state diagram shows the flow of a page request when navigating
 metered content. The bold lines show the happy path.
 
-- The diagram draws one way for the server to tell whose contract a request
-  belongs to: a "bump slug", or simply "slug" -- a random token in the URI path
-  that resolves to the contract with one derive and one account read.
-- It is only one way. Payment itself never uses the slug: `meter_and_settle`
-  derives the contract from the site and the payer's wallet address. A site
-  with its own accounts, login, or SSO stores a wallet address on the user
-  record and needs no slug at all. See `wasm-client/SPEC.md` §4.
-- What the slug buys is a site with **no server-side session state**. It is not
-  primarily a way to dodge a cookie banner: an authentication session cookie is
-  generally exempt from consent as strictly necessary, so a site that logs
-  people in is already clear on that count.
-- The slug is a secret, not a shareable link. Gifting a page view by sharing a
-  URL is **out of scope**: a slug is a bearer token for the payer's whole
-  remaining balance, so sharing one gifts the balance rather than an article.
-  A gift-link feature, if it is ever wanted, belongs in the shape publishers
-  actually use -- one time, expiring, one article.
+- The diagram assumes the site can map a viewer to a wallet address, and says
+  nothing about how. Accounts, login, SSO -- whatever the site already runs.
+  That mapping is the integrator's one obligation; everything else starts from
+  the address. See `wasm-client/SPEC.md` §4.
+- Every contract is derived from the site and the payer's wallet address, so
+  identifying the viewer *is* finding the contract. There is no session token
+  in the protocol and nothing to look up but an account.
+- Only two authorizations appear in the flow: the site's authority over its
+  own contracts, which is what lets it meter, and the payer's authorization of
+  the spend, which is the SPL approval the whole design rests on.
 
 ![pay-as-you-go-state-machine](state-machine.png)
 
 In the state diagram, the happy path has bold lines. It goes like this:
-- viewer uses navigation to metered content with their bump slug
-- server finds contract account using the slug
+- viewer navigates to metered content, and the site knows their wallet address
+- server derives the contract address from the site and that wallet address,
+  and reads the account
 - server increments the usage by the page view amount
 - if the viewer has accumulated sufficient unpaid usage, the server
   invokes a transfer from the viewer's wallet
-- the server delivers the metered page after inserting the viewer's
-  slug into any links to metered content
+- the server delivers the metered page
 
-Viewers who come without a bump slug go to the sign-in or sign-up page.
-The page view includes details about the contract and may allow the viewer
-to select a limit.
-- Sign-in invokes a wallet authorization and contract lookup using the
-  wallet address.
-- Sign-up invokes contract account creation and wallet authorization (signing)
-  of the contract.
+Viewers the site cannot place go to the sign-up page. It includes details
+about the contract and may allow the viewer to select a limit. Sign-up creates
+the contract account and takes the payer's authorization of the spend, both in
+one transaction -- the authorization has to come first, and the program checks
+that it did.
 
 The dialog and the server must enforce a minimum for
 the limit amount that is some multiple of the page view amount.

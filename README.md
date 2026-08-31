@@ -35,6 +35,22 @@ for further instructions about working with the anchor programs.
 
 [ags]: https://www.anchor-lang.com/docs/quickstart/local#getting-started
 
+Two scripts wrap the Rust side:
+
+- `./bin/build-rust` builds the Anchor program and the WASM client. Takes
+  `--program` or `--client` to do just one.
+- `./bin/test-rust` runs both test suites, and passes any argument through to
+  `cargo test` as a filter.
+
+The program tests run against [LiteSVM][litesvm], an in-process SVM, so they
+need no validator -- but they do load `target/deploy/pay_on_chain.so`, so the
+program must be built first.
+
+[litesvm]: https://github.com/LiteSVM/litesvm
+
+The WASM client lives in `wasm-client`. Its core is plain Rust with no browser
+dependency, wrapped in a thin `wasm-bindgen` layer; see `wasm-client/README.md`.
+
 ## Payment model
 
 The payment model is that someone with a wallet identifies with the wallet and

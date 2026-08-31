@@ -79,15 +79,22 @@ See also, the [x402 protocol][x402] from Coinbase.
 This state diagram shows the flow of a page request when navigating
 metered content. The bold lines show the happy path.
 
-- Instead of using a session cookie, the site relies on a "bump slug", or
-  simply "slug". The slug is a random character sequence inserted into the path
-  of the URI that uniquely identifies the contract.
-- Avoiding cookies means that the site does not have to seek authorization to
-  store cookies.
-- Using a slug means that the URI can be shared with others who can view the
-  resource on the payer wallet's dime, for example, if the payer shares some
-  metered content for someone else to see. Thus, sharing becomes a gift rather
-  than a betrayal of the recipient to site trackers or to the site's paywall.
+- The diagram draws one way for the server to tell whose contract a request
+  belongs to: a "bump slug", or simply "slug" -- a random token in the URI path
+  that resolves to the contract with one derive and one account read.
+- It is only one way. Payment itself never uses the slug: `meter_and_settle`
+  derives the contract from the site and the payer's wallet address. A site
+  with its own accounts, login, or SSO stores a wallet address on the user
+  record and needs no slug at all. See `wasm-client/SPEC.md` §4.
+- What the slug buys is a site with **no server-side session state**. It is not
+  primarily a way to dodge a cookie banner: an authentication session cookie is
+  generally exempt from consent as strictly necessary, so a site that logs
+  people in is already clear on that count.
+- The slug is a secret, not a shareable link. Gifting a page view by sharing a
+  URL is **out of scope**: a slug is a bearer token for the payer's whole
+  remaining balance, so sharing one gifts the balance rather than an article.
+  A gift-link feature, if it is ever wanted, belongs in the shape publishers
+  actually use -- one time, expiring, one article.
 
 ![pay-as-you-go-state-machine](state-machine.png)
 

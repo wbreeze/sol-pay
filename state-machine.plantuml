@@ -21,7 +21,7 @@ state check_limit <<choice>>
 state account_page #cyan
 state metered_page #cyan
 state increment_limit #pink
-state delete_account
+state delete_account #pink
 
 [*] -[bold]-> bumpslugcheck : navigate
 bumpslugcheck --> sign_up : no bump slug
@@ -93,5 +93,15 @@ delete_account : meter_and_settle takes the entire unpaid balance,
 delete_account : so residue is always below the collection threshold
 delete_account : leave the residue uncollected (take the loss)
 delete_account --> [*] : navigate without slug
+
+legend left
+Colour says what kind of step it is, not who runs it.
+The pink (on chain) steps divide by signer:
+  payer signs .......... add_wallet, increment_limit, delete_account
+  site authority signs . meter_and_settle
+The slug is one way for the server to identify the payer, not the only one.
+A site with its own login or SSO uses that instead; see wasm-client/SPEC.md
+section 4.
+endlegend
 
 @enduml

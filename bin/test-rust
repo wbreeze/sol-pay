@@ -19,14 +19,17 @@ if [ ! -f "$SO" ]; then
   "$ROOT/bin/build-rust" --program
 fi
 
+# --locked everywhere: run against the committed Cargo.lock or fail. A test
+# run that silently re-resolved would not be testing the versions we ship.
+#
 # Program behaviour plus the client/program parity checks, which live here
 # because they need both sides in one build.
 echo "==> cargo test (pay-on-chain)"
-( cd "$ROOT/pay-on-chain" && cargo test "$@" )
+( cd "$ROOT/pay-on-chain" && cargo test --locked "$@" )
 
 # --no-default-features drops the `wasm` feature so the UI-agnostic core is
 # tested natively, without wasm-bindgen.
 echo "==> cargo test (wasm-client core)"
-( cd "$ROOT/wasm-client" && cargo test --no-default-features "$@" )
+( cd "$ROOT/wasm-client" && cargo test --locked --no-default-features "$@" )
 
 echo "done."

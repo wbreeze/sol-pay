@@ -42,8 +42,9 @@ if [ "$want_client" = 1 ]; then
     echo "==> adding wasm32-unknown-unknown target"
     rustup target add wasm32-unknown-unknown
   }
+  # --locked: build the versions in Cargo.lock or fail, never re-resolve.
   echo "==> wasm-pack build"
-  ( cd "$ROOT/wasm-client" && wasm-pack build --target web )
+  ( cd "$ROOT/wasm-client" && wasm-pack build --target web -- --locked )
 fi
 
 echo "done."

@@ -1,0 +1,69 @@
+# The canary that replaces "run cargo update and check the majors yourself".
+#
+# Once a week this ignores the committed Cargo.lock files, resolves the
+# dependency ranges fresh, and builds. A red run means something upstream
+# released a version that no longer works with the ranges in Cargo.toml — a
+# fact worth learning on a Monday morning rather than in the middle of
+# someone else's work. It never changes the lock; the fix is a deliberate
+# cargo update, a bin/test-rust run, and a commit.
+name: dependency drift
+
+on:
+  schedule:
+    - cron: '17 6 * * 1'   # Mondays, 06:17 UTC
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  drift:
+    name: resolve fresh and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      # Deliberately no rust-cache: the point is a cold, current resolution.
+
+      - name: Update wasm-client
+        working-directory: wasm-client
+        run: cargo update
+
+      - name: Test wasm-client core
+        working-directory: wasm-client
+        run: cargo test --no-default-features
+
+      - name: No duplicate solana crates
+        working-directory: wasm-client
+        run: |
+          dupes="$(cargo tree --no-default-features -d -e normal | grep -E '^solana-' || true)"
+          if [ -n "$dupes" ]; then
+            echo "Duplicate solana crates after a fresh resolve:"
+            echo "$dupes"
+            exit 1
+          fi
+
+      - name: Update pay-on-chain
+        working-directory: pay-on-chain
+        run: cargo update
+
+      # --no-run compiles the program and the LiteSVM harness without needing
+      # the Anchor CLI or a built .so. Compilation is what drift breaks; the
+      # behavioural assertions are rust.yml's job.
+      - name: Compile pay-on-chain tests
+        working-directory: pay-on-chain
+        run: cargo test --no-run
+
+      # So a failed run says which versions it picked, not just that it broke.
+      - name: Report the resolution
+        if: always()
+        run: |
+          for d in wasm-client pay-on-chain; do
+            echo "## $d" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            git -C . diff --no-color -- "$d/Cargo.lock" | grep -E '^[+-](name|version)' >> "$GITHUB_STEP_SUMMARY" || echo '(no change)' >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          done

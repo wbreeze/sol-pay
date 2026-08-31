@@ -35,6 +35,9 @@ for further instructions about working with the anchor programs.
 
 [ags]: https://www.anchor-lang.com/docs/quickstart/local#getting-started
 
+Deploying from a fresh clone needs one extra step, `anchor keys sync`, because
+the program keypair is not in the repository. See `pay-on-chain/README.md`.
+
 Two scripts wrap the Rust side:
 
 - `./bin/build-rust` builds the Anchor program and the WASM client. Takes
@@ -50,6 +53,12 @@ program must be built first.
 
 The WASM client lives in `wasm-client`. Its core is plain Rust with no browser
 dependency, wrapped in a thin `wasm-bindgen` layer; see `wasm-client/README.md`.
+
+Both scripts pass `--locked`, so they build the versions in the committed
+`Cargo.lock` files or fail rather than re-resolving. `.github/workflows/rust.yml`
+runs the same locked build and both suites on push; `dependency-drift.yml`
+re-resolves from scratch weekly, so an upstream release that breaks the version
+ranges shows up as a red scheduled run instead of a surprise.
 
 ## Payment model
 

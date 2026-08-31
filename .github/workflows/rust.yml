@@ -1,0 +1,93 @@
+# Locked builds and tests for the Rust side: the on-chain program and the
+# WASM client. Everything here runs against the committed Cargo.lock files, so
+# a green run means those exact versions build and pass — no reader has to
+# verify a pin by hand. Upstream drift is a separate, scheduled concern; see
+# dependency-drift.yml.
+name: rust
+
+on:
+  push:
+    branches: [master, client]
+    paths: ['pay-on-chain/**', 'wasm-client/**', 'bin/**', '.github/workflows/rust.yml']
+  pull_request:
+    paths: ['pay-on-chain/**', 'wasm-client/**', 'bin/**', '.github/workflows/rust.yml']
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  client:
+    name: wasm-client (locked)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-toolchain.toml pins the channel; this only adds the wasm target.
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: wasm-client
+
+      # The UI-agnostic core, tested natively without wasm-bindgen.
+      - name: Test core
+        working-directory: wasm-client
+        run: cargo test --locked --no-default-features
+
+      # One generation of the solana crates, or two copies of solana-pubkey
+      # end up in the tree. This is the check that keeps the README's note
+      # from being something anyone has to remember.
+      - name: No duplicate solana crates
+        working-directory: wasm-client
+        run: |
+          dupes="$(cargo tree --locked --no-default-features -d -e normal | grep -E '^solana-' || true)"
+          if [ -n "$dupes" ]; then
+            echo "Duplicate solana crates in the dependency tree:"
+            echo "$dupes"
+            exit 1
+          fi
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+
+      - name: Build browser bundle
+        run: ./bin/build-rust --client
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wasm-client-pkg
+          path: wasm-client/pkg/
+          retention-days: 7
+
+  program:
+    name: pay-on-chain (locked)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: pay-on-chain
+
+      - name: Install Solana tooling
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      - name: Install Anchor
+        run: |
+          cargo install --git https://github.com/solana-foundation/anchor avm --locked --force
+          avm install 0.32.1
+          avm use 0.32.1
+
+      # The LiteSVM harness loads target/deploy/pay_on_chain.so, so the
+      # program has to exist before the tests run.
+      - name: Build program
+        run: ./bin/build-rust --program
+
+      # Program behaviour plus the client/program parity checks.
+      - name: Test
+        working-directory: pay-on-chain
+        run: cargo test --locked

@@ -17,11 +17,12 @@ default = ["wasm"]
 wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:serde", "dep:serde_bytes"]
 
 [dependencies]
-# NOTE: these version pins are unverified. crates.io was unreachable from the
-# machine this was written on, so run `cargo update` / `cargo add` to confirm
-# the current majors before trusting them.
-solana-pubkey = { version = "3.0", default-features = false, features = ["curve25519", "std"] }
-solana-instruction = { version = "3.0", default-features = false, features = ["std"] }
+# Pinned to the solana 2.x crate generation on purpose: anchor-lang 0.32.1,
+# litesvm and spl-token are all on 2.x, and the parity test in
+# pay-on-chain/tests builds this crate alongside them. Mixing generations puts
+# two copies of the same crate in one tree and fails to compile.
+solana-pubkey = { version = "2.4", default-features = false, features = ["curve25519", "std"] }
+solana-instruction = { version = "2.3", default-features = false, features = ["std"] }
 borsh = { version = "1.5", features = ["derive"] }
 bs58 = "0.5"
 

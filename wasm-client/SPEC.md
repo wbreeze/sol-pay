@@ -1,7 +1,7 @@
 # sol-pay-client — API specification
 
-Status: draft, revised 2026-08-31. Written before implementation; sections 6.2
-onward describe code that does not exist yet.
+Status: draft, revised 2026-08-31. §6.2 is implemented; §6.3 through §6.5
+describe code that does not exist yet.
 
 
 This specifies the client library that a site integrates. It is the companion
@@ -204,7 +204,7 @@ those ranges become the real compatibility contract on the day this ships.
 Instruction builders in `core::ix`, address derivation in `core::pda`. Every
 builder stays public, so an integrator can compose transactions their own way.
 
-### 6.2 Read path — `core::state`, to be written
+### 6.2 Read path — `core::state`, `core::units`
 
 Nothing in the library reads chain state today, so `manage_meter` cannot be
 rendered by a consumer at all: its "show current limit, cost per page, used and
@@ -230,7 +230,7 @@ impl Contract { pub fn decode(data: &[u8]) -> Result<Self, DecodeError>;
 /// and there is nowhere else to get it without decoding a mint by hand.
 pub fn mint_decimals(mint_account_data: &[u8]) -> Result<u8, DecodeError>;
 
-/// Base units <-> a human amount, at a mint's decimals.
+// core::units
 pub fn to_base_units(amount: &str, decimals: u8) -> Result<u64, UnitsError>;
 pub fn from_base_units(units: u64, decimals: u8) -> String;
 ```

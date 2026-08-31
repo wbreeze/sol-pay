@@ -28,6 +28,8 @@ mod bindings {
     use crate::core::ids;
     use crate::core::ix;
     use crate::core::pda;
+    use crate::core::state;
+    use crate::core::units;
 
     #[derive(Serialize)]
     struct JsAccountMeta {
@@ -43,6 +45,61 @@ mod bindings {
         accounts: Vec<JsAccountMeta>,
         #[serde(with = "serde_bytes")]
         data: Vec<u8>,
+    }
+
+    /// `u64` crosses as `BigInt`. A JS number loses precision above 2^53, and
+    /// a payment library that silently truncates is not one anybody can audit.
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct JsSite {
+        authority: String,
+        mint: String,
+        treasury: String,
+        page_price: u64,
+        collection_threshold: u64,
+        min_limit: u64,
+        bump: u8,
+    }
+
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct JsContract {
+        site: String,
+        payer: String,
+        limit: u64,
+        used: u64,
+        paid: u64,
+        bump: u8,
+        /// Derived, not stored: used - paid. Every caller wants it.
+        unpaid: u64,
+    }
+
+    impl From<state::Site> for JsSite {
+        fn from(s: state::Site) -> Self {
+            JsSite {
+                authority: s.authority.to_string(),
+                mint: s.mint.to_string(),
+                treasury: s.treasury.to_string(),
+                page_price: s.page_price,
+                collection_threshold: s.collection_threshold,
+                min_limit: s.min_limit,
+                bump: s.bump,
+            }
+        }
+    }
+
+    impl From<state::Contract> for JsContract {
+        fn from(c: state::Contract) -> Self {
+            JsContract {
+                site: c.site.to_string(),
+                payer: c.payer.to_string(),
+                limit: c.limit,
+                used: c.used,
+                paid: c.paid,
+                bump: c.bump,
+                unpaid: c.unpaid(),
+            }
+        }
     }
 
     impl From<Instruction> for JsInstruction {
@@ -94,6 +151,45 @@ mod bindings {
         let site = key(site, "site")?;
         let payer = key(payer, "payer")?;
         Ok(pda::contract_address(&site, &payer).0.to_string())
+    }
+
+    // --- accounts ---------------------------------------------------------
+
+    /// Decode a `Site` account fetched with `getAccountInfo`.
+    #[wasm_bindgen(js_name = decodeSite)]
+    pub fn decode_site(data: &[u8]) -> Result<JsValue, JsError> {
+        let site = state::Site::decode(data).map_err(|e| JsError::new(&e.to_string()))?;
+        serde_wasm_bindgen::to_value(&JsSite::from(site))
+            .map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// Decode a `Contract` account fetched with `getAccountInfo`.
+    #[wasm_bindgen(js_name = decodeContract)]
+    pub fn decode_contract(data: &[u8]) -> Result<JsValue, JsError> {
+        let contract = state::Contract::decode(data).map_err(|e| JsError::new(&e.to_string()))?;
+        serde_wasm_bindgen::to_value(&JsContract::from(contract))
+            .map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// The mint's decimals, which `approveChecked` needs.
+    #[wasm_bindgen(js_name = mintDecimals)]
+    pub fn mint_decimals(mint_account_data: &[u8]) -> Result<u8, JsError> {
+        state::mint_decimals(mint_account_data).map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    // --- amounts ----------------------------------------------------------
+
+    /// Human amount to base units. Takes a string, not a number: `0.1` is not
+    /// representable in binary floating point.
+    #[wasm_bindgen(js_name = toBaseUnits)]
+    pub fn to_base_units(amount: &str, decimals: u8) -> Result<u64, JsError> {
+        units::to_base_units(amount, decimals).map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// Base units back to a decimal string, without trailing zeros.
+    #[wasm_bindgen(js_name = fromBaseUnits)]
+    pub fn from_base_units(units_: u64, decimals: u8) -> String {
+        units::from_base_units(units_, decimals)
     }
 
     // --- instructions -----------------------------------------------------

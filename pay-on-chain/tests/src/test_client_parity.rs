@@ -7,12 +7,12 @@
 //! far would notice. These tests build each instruction both ways and require
 //! them to be identical, so any future drift fails here.
 
-use anchor_lang::{system_program, InstructionData, ToAccountMetas};
+use anchor_lang::{system_program, AccountSerialize, InstructionData, ToAccountMetas};
 use anchor_spl::token::spl_token;
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 
-use sol_pay_client::core::{ids, ix as client, pda};
+use sol_pay_client::core::{ids, ix as client, pda, state as client_state};
 
 const DECIMALS: u8 = 6;
 const LIMIT: u64 = 500_000;
@@ -269,4 +269,109 @@ fn hand_rolled_spl_instructions_match_spl_token() {
     let theirs = spl_token::instruction::revoke(&spl_token::ID, &f.payer_ata, &f.payer, &[]).unwrap();
     let ours = client::revoke(&spl_token::ID, &f.payer_ata, &f.payer);
     assert_same("revoke", &ours, &theirs);
+}
+
+// --- account decoding -----------------------------------------------------
+//
+// The client decodes account data by hand, from byte offsets. That is only
+// safe while the layout it assumes is the layout the program writes, so both
+// halves of that claim are asserted here rather than described in a comment.
+
+/// A field added on chain shifts every field after it. Sizes are the cheapest
+/// tripwire for that, and `INIT_SPACE` is generated from the struct itself.
+#[test]
+fn client_account_sizes_match_the_program() {
+    use anchor_lang::Space;
+    assert_eq!(
+        client_state::SITE_LEN,
+        8 + pay_on_chain::state::Site::INIT_SPACE,
+        "Site length"
+    );
+    assert_eq!(
+        client_state::CONTRACT_LEN,
+        8 + pay_on_chain::state::Contract::INIT_SPACE,
+        "Contract length"
+    );
+}
+
+/// The real test: let Anchor write an account exactly as the program would,
+/// then read it back with the client. This pins the discriminator, the field
+/// order and every offset at once, and it fails if any of them move.
+#[test]
+fn client_decodes_what_anchor_serializes() {
+    let f = Fixture::new();
+
+    let site = pay_on_chain::state::Site {
+        authority: f.authority,
+        mint: f.mint,
+        treasury: f.treasury,
+        page_price: 10_000,
+        collection_threshold: 250_000,
+        min_limit: 500_000,
+        bump: 253,
+    };
+    let mut bytes = Vec::new();
+    site.try_serialize(&mut bytes).unwrap();
+    assert_eq!(bytes.len(), client_state::SITE_LEN, "serialized Site length");
+
+    let decoded = client_state::Site::decode(&bytes).expect("client decodes Site");
+    assert_eq!(decoded.authority, site.authority);
+    assert_eq!(decoded.mint, site.mint);
+    assert_eq!(decoded.treasury, site.treasury);
+    assert_eq!(decoded.page_price, site.page_price);
+    assert_eq!(decoded.collection_threshold, site.collection_threshold);
+    assert_eq!(decoded.min_limit, site.min_limit);
+    assert_eq!(decoded.bump, site.bump);
+
+    let contract = pay_on_chain::state::Contract {
+        site: f.site,
+        payer: f.payer,
+        limit: LIMIT,
+        used: 120_000,
+        paid: 100_000,
+        bump: 251,
+    };
+    let mut bytes = Vec::new();
+    contract.try_serialize(&mut bytes).unwrap();
+    assert_eq!(
+        bytes.len(),
+        client_state::CONTRACT_LEN,
+        "serialized Contract length"
+    );
+
+    let decoded = client_state::Contract::decode(&bytes).expect("client decodes Contract");
+    assert_eq!(decoded.site, contract.site);
+    assert_eq!(decoded.payer, contract.payer);
+    assert_eq!(decoded.limit, contract.limit);
+    assert_eq!(decoded.used, contract.used);
+    assert_eq!(decoded.paid, contract.paid);
+    assert_eq!(decoded.bump, contract.bump);
+
+    // The derived helpers must agree with the program's own.
+    assert_eq!(decoded.unpaid(), contract.unpaid());
+    assert_eq!(decoded.outstanding(), contract.outstanding());
+}
+
+/// An account of the right size but the wrong type must be refused, not
+/// reinterpreted. Site and Contract differ in length, so the case worth
+/// checking is a Site's bytes with a Contract's discriminator swapped in.
+#[test]
+fn client_refuses_an_account_of_another_type() {
+    let f = Fixture::new();
+    let site = pay_on_chain::state::Site {
+        authority: f.authority,
+        mint: f.mint,
+        treasury: f.treasury,
+        page_price: 1,
+        collection_threshold: 2,
+        min_limit: 3,
+        bump: 250,
+    };
+    let mut bytes = Vec::new();
+    site.try_serialize(&mut bytes).unwrap();
+
+    assert!(
+        client_state::Contract::decode(&bytes).is_err(),
+        "a Site must not decode as a Contract"
+    );
 }

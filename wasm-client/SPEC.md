@@ -1,7 +1,7 @@
 # sol-pay-client — API specification
 
-Status: draft, revised 2026-08-31. §6.2 is implemented; §6.3 through §6.5
-describe code that does not exist yet.
+Status: draft, revised 2026-08-31. §6.2 through §6.5 are implemented; §6.6 is
+documentation only, by decision.
 
 
 This specifies the client library that a site integrates. It is the companion
@@ -206,6 +206,10 @@ builder stays public, so an integrator can compose transactions their own way.
 
 ### 6.2 Read path — `core::state`, `core::units`
 
+`core::state` also decodes the payer's SPL token account (`TokenAccount`:
+mint, owner, amount, delegate, delegated_amount), which `diagnose` in §6.4
+needs and a site's UI usually wants anyway.
+
 Nothing in the library reads chain state today, so `manage_meter` cannot be
 rendered by a consumer at all: its "show current limit, cost per page, used and
 paid amount" spans the `Contract` and `Site` accounts and we export no way to
@@ -251,7 +255,7 @@ output could not, because no validator knows what the payer meant.
 representable in binary floating point, and a payment library that rounds is
 not one an integrator can audit.
 
-### 6.3 Preflight — `core::preflight`, to be written
+### 6.3 Preflight — `core::preflight`
 
 The choice nodes in the diagram are arithmetic over `Contract` and `Site`, and
 the minimum-limit rule appears at three places in the flow. If each integrator
@@ -294,7 +298,7 @@ It returns a plain `u64` and not a struct naming which term bound. A caller
 holding both accounts can compare them and say "at least 5, because you carry
 3.20 unpaid" without our help.
 
-### 6.4 Errors — `core::error`, to be written
+### 6.4 Errors — `core::error`
 
 An integrator currently receives a numeric code and a log string, and must
 match on text to tell "limit reached" (route to renewal) from "insufficient
@@ -357,28 +361,42 @@ Neither is inferable from the code. Both are answerable by reading the payer's
 token account:
 
 ```rust
-pub enum Shortfall { Balance { short: u64 }, Allowance { short: u64 }, Neither }
+pub struct Shortfall {
+    pub balance_short: u64,     // zero when the balance covers it
+    pub allowance_short: u64,   // zero when the allowance covers it
+    pub delegate_present: bool, // SPL clears the delegate at zero allowance
+}
 
-/// Given the payer's token account and what the next settle would move,
-/// say which constraint is short. A read, not a guess.
-pub fn diagnose(token_account_data: &[u8], unpaid: u64) -> Result<Shortfall, DecodeError>;
+/// Given the payer's decoded token account and what the next settle would
+/// move, say which constraints are short. A read, not a guess.
+pub fn diagnose(account: &TokenAccount, unpaid: u64) -> Shortfall;
 ```
+
+A struct rather than a verdict enum, and this is the design rule applied: both
+constraints can be short at once, and picking one to report would be
+prescribing a response. The site decides whether "top up" or "re-authorize"
+comes first. It takes a decoded `TokenAccount` rather than bytes so that
+decoding stays in `core::state` and a caller who already fetched the account
+does not decode it twice.
 
 This is still "describe the chain's state, do not prescribe the site's
 response": it reports which quantity is short and by how much, and says nothing
 about what to show.
 
-### 6.5 Ordered transactions — `core::tx`, to be written
+### 6.5 Ordered transactions — `core::tx`
 
 "The approve must precede the program instruction" is currently a paragraph in
 a README. It is the rule an integrator gets wrong once and then debugs for an
 hour, and the program deliberately refuses to trust the client on it.
 
 ```rust
-pub fn open_contract_tx(..) -> Vec<Instruction>;   // approve_checked, open_contract
-pub fn renew_contract_tx(..) -> Vec<Instruction>;  // approve_checked, renew_contract
-pub fn close_contract_tx(..) -> Vec<Instruction>;  // close_contract, revoke
+// core::tx — the module name carries the `_tx`, so the functions do not.
+pub fn open_contract(..)  -> [Instruction; 2];  // approve_checked, open_contract
+pub fn renew_contract(..) -> [Instruction; 2];  // approve_checked, renew_contract
+pub fn close_contract(..) -> [Instruction; 2];  // close_contract, revoke
 ```
+
+Fixed-size arrays, not `Vec`: the length is part of what each one promises.
 
 Convenience, not a gate: the individual builders stay public and nothing is
 reachable only through these. They exist so the correct thing is also the

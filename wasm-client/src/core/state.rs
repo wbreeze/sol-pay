@@ -32,6 +32,8 @@ pub const SITE_LEN: usize = 129;
 pub const CONTRACT_LEN: usize = 97;
 /// SPL mint accounts are at least this long; Token-2022 adds extensions after.
 pub const MINT_MIN_LEN: usize = 82;
+/// SPL token accounts are at least this long, same caveat.
+pub const TOKEN_ACCOUNT_LEN: usize = 165;
 /// Byte offset of `decimals` within an SPL mint.
 const MINT_DECIMALS_OFFSET: usize = 44;
 
@@ -112,8 +114,27 @@ struct Reader<'a> {
 }
 
 impl<'a> Reader<'a> {
-    fn new(bytes: &'a [u8]) -> Self {
-        Reader { bytes, at: 8 }
+    /// `at` is where the fields start: 8 for an Anchor account, 0 for an SPL
+    /// one, which carries no discriminator.
+    fn new(bytes: &'a [u8], at: usize) -> Self {
+        Reader { bytes, at }
+    }
+
+    /// A 4-byte-tagged optional pubkey, the way SPL Token writes `COption`.
+    fn coption_pubkey(&mut self) -> Option<Pubkey> {
+        let mut tag = [0u8; 4];
+        tag.copy_from_slice(&self.bytes[self.at..self.at + 4]);
+        self.at += 4;
+        let key = self.pubkey();
+        if u32::from_le_bytes(tag) == 1 {
+            Some(key)
+        } else {
+            None
+        }
+    }
+
+    fn skip(&mut self, n: usize) {
+        self.at += n;
     }
 
     fn pubkey(&mut self) -> Pubkey {
@@ -140,7 +161,7 @@ impl<'a> Reader<'a> {
 impl Site {
     pub fn decode(data: &[u8]) -> Result<Self, DecodeError> {
         check(data, discriminator::SITE, SITE_LEN)?;
-        let mut r = Reader::new(data);
+        let mut r = Reader::new(data, 8);
         Ok(Site {
             authority: r.pubkey(),
             mint: r.pubkey(),
@@ -156,7 +177,7 @@ impl Site {
 impl Contract {
     pub fn decode(data: &[u8]) -> Result<Self, DecodeError> {
         check(data, discriminator::CONTRACT, CONTRACT_LEN)?;
-        let mut r = Reader::new(data);
+        let mut r = Reader::new(data, 8);
         Ok(Contract {
             site: r.pubkey(),
             payer: r.pubkey(),
@@ -181,6 +202,52 @@ pub fn mint_decimals(mint_account_data: &[u8]) -> Result<u8, DecodeError> {
         });
     }
     Ok(mint_account_data[MINT_DECIMALS_OFFSET])
+}
+
+
+/// The payer's SPL token account, as much of it as this crate needs.
+///
+/// Not an Anchor account, so no discriminator: SPL writes a fixed 165-byte
+/// layout. Token-2022 appends extensions past that, which is why anything at
+/// least that long decodes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TokenAccount {
+    pub mint: Pubkey,
+    pub owner: Pubkey,
+    pub amount: u64,
+    /// Whom the owner has approved, if anyone. SPL clears this when the
+    /// approved amount reaches zero, so its absence is ordinary rather than
+    /// exceptional.
+    pub delegate: Option<Pubkey>,
+    /// How much that delegate may still move. Decremented by every delegated
+    /// transfer, which is why it is not simply the limit.
+    pub delegated_amount: u64,
+}
+
+impl TokenAccount {
+    pub fn decode(data: &[u8]) -> Result<Self, DecodeError> {
+        if data.len() < TOKEN_ACCOUNT_LEN {
+            return Err(DecodeError::WrongLength {
+                expected: TOKEN_ACCOUNT_LEN,
+                got: data.len(),
+            });
+        }
+        let mut r = Reader::new(data, 0);
+        let mint = r.pubkey();
+        let owner = r.pubkey();
+        let amount = r.u64();
+        let delegate = r.coption_pubkey();
+        r.skip(1); // state
+        r.skip(12); // is_native: COption<u64>
+        let delegated_amount = r.u64();
+        Ok(TokenAccount {
+            mint,
+            owner,
+            amount,
+            delegate,
+            delegated_amount,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -243,6 +310,30 @@ mod tests {
         };
         assert_eq!(c.unpaid(), 0);
         assert_eq!(c.outstanding(), 40);
+    }
+
+    #[test]
+    fn token_account_decodes_amount_and_delegation() {
+        let mut a = vec![0u8; TOKEN_ACCOUNT_LEN];
+        a[0..32].copy_from_slice(&[4u8; 32]); // mint
+        a[32..64].copy_from_slice(&[5u8; 32]); // owner
+        a[64..72].copy_from_slice(&900u64.to_le_bytes()); // amount
+        a[72..76].copy_from_slice(&1u32.to_le_bytes()); // delegate: Some
+        a[76..108].copy_from_slice(&[6u8; 32]);
+        a[121..129].copy_from_slice(&400u64.to_le_bytes()); // delegated_amount
+
+        let t = TokenAccount::decode(&a).unwrap();
+        assert_eq!(t.mint, Pubkey::new_from_array([4u8; 32]));
+        assert_eq!(t.owner, Pubkey::new_from_array([5u8; 32]));
+        assert_eq!(t.amount, 900);
+        assert_eq!(t.delegate, Some(Pubkey::new_from_array([6u8; 32])));
+        assert_eq!(t.delegated_amount, 400);
+
+        // Tag zero means no delegate, whatever bytes follow it.
+        a[72..76].copy_from_slice(&0u32.to_le_bytes());
+        assert_eq!(TokenAccount::decode(&a).unwrap().delegate, None);
+
+        assert!(TokenAccount::decode(&a[..100]).is_err());
     }
 
     #[test]

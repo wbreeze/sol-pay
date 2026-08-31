@@ -10,3 +10,6 @@ mod test_client_parity;
 
 #[cfg(test)]
 mod test_metering;
+
+#[cfg(test)]
+mod test_preflight;

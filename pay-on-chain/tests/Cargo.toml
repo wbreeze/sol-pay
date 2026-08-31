@@ -1,10 +1,26 @@
 [package]
 name = "tests"
 version = "0.1.0"
-description = "Created with Anchor"
+description = "LiteSVM tests for the pay-on-chain metering program"
 edition = "2021"
 rust-version = "1.89.0"
 
 [dependencies]
-anchor-client = "0.32.1"
-pay-on-chain = { version = "0.1.0", path = "../programs/pay-on-chain" }
+pay-on-chain = { version = "0.1.0", path = "../programs/pay-on-chain", features = ["no-entrypoint"] }
+anchor-lang = "0.32.1"
+anchor-spl = { version = "0.32.1", default-features = false, features = ["token"] }
+
+# Deliberately NOT solana-sdk: it resolves to the 3.x crate generation, while
+# litesvm, anchor-lang and spl-token are all on 2.x. Mixing the two puts two
+# copies of solana-keypair (and five8) in the tree and fails to compile. These
+# pins are the versions litesvm 0.7.1 and anchor 0.32.1 already agree on.
+[dev-dependencies]
+litesvm = "0.7"
+solana-account = "2.2"
+solana-instruction = "2.3"
+solana-keypair = "2.2"
+solana-program-option = "2.2"
+solana-program-pack = "2.2"
+solana-pubkey = { version = "2.4", features = ["std"] }
+solana-signer = "2.2"
+solana-transaction = { version = "2.2", features = ["bincode"] }

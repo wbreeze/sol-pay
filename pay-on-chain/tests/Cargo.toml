@@ -8,13 +8,21 @@ rust-version = "1.89.0"
 [dependencies]
 pay-on-chain = { version = "0.1.0", path = "../programs/pay-on-chain", features = ["no-entrypoint"] }
 anchor-lang = "0.32.1"
-anchor-spl = { version = "0.32.1", default-features = false, features = ["token"] }
+# token_2022 is here so the parity test can check the client's hardcoded
+# program ids. NOT associated_token: anchor-spl 0.32.1 requires
+# spl-associated-token-account ^7, which is unpublished (6.0.0 is newest), and
+# anchor build resolves the whole workspace, so enabling it here breaks the
+# program build.
+anchor-spl = { version = "0.32.1", default-features = false, features = ["token", "token_2022"] }
 
 # Deliberately NOT solana-sdk: it resolves to the 3.x crate generation, while
 # litesvm, anchor-lang and spl-token are all on 2.x. Mixing the two puts two
 # copies of solana-keypair (and five8) in the tree and fails to compile. These
 # pins are the versions litesvm 0.7.1 and anchor 0.32.1 already agree on.
 [dev-dependencies]
+# default-features = false drops the `wasm` feature, so only the UI-agnostic
+# core is built here — no wasm-bindgen in a native test binary.
+sol-pay-client = { path = "../../wasm-client", default-features = false }
 litesvm = "0.7"
 solana-account = "2.2"
 solana-instruction = "2.3"

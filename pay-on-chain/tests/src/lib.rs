@@ -6,4 +6,7 @@
 mod harness;
 
 #[cfg(test)]
+mod test_client_parity;
+
+#[cfg(test)]
 mod test_metering;

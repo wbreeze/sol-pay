@@ -1,0 +1,8 @@
+# cargo build output
+target
+
+# wasm-pack / wasm-bindgen output
+pkg
+
+.DS_Store
+**/*.rs.bk

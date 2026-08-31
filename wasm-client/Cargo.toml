@@ -1,0 +1,38 @@
+[package]
+name = "sol-pay-client"
+version = "0.1.0"
+edition = "2021"
+description = "Instruction builders for the pay-on-chain metering program, usable from WASM or native Rust"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# `core` carries the whole client and depends on nothing UI- or
+# browser-specific, so a Leptos/Yew front end (or a native tool, or a test)
+# can use it directly. The wasm-bindgen layer in lib.rs is a thin wrapper and
+# is the only part that knows it is running in a browser.
+[features]
+default = ["wasm"]
+wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:serde", "dep:serde_bytes"]
+
+[dependencies]
+# NOTE: these version pins are unverified. crates.io was unreachable from the
+# machine this was written on, so run `cargo update` / `cargo add` to confirm
+# the current majors before trusting them.
+solana-pubkey = { version = "3.0", default-features = false, features = ["curve25519", "std"] }
+solana-instruction = { version = "3.0", default-features = false, features = ["std"] }
+borsh = { version = "1.5", features = ["derive"] }
+bs58 = "0.5"
+
+wasm-bindgen = { version = "0.2", optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_bytes = { version = "0.11", optional = true }
+
+[dev-dependencies]
+sha2 = "0.10"
+
+[profile.release]
+opt-level = "s"
+lto = true

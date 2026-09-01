@@ -1,6 +1,3 @@
-[toolchain]
-package_manager = "yarn"
-
 [features]
 resolution = true
 skip-lint = false

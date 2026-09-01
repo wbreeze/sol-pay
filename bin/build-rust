@@ -36,12 +36,20 @@ fi
 
 if [ "$want_client" = 1 ]; then
   need wasm-pack "Install with: brew install wasm-pack"
-  # wasm-pack usually adds this itself, but failing here is clearer than
-  # failing halfway through a build.
-  rustup target list --installed | grep -qx wasm32-unknown-unknown || {
-    echo "==> adding wasm32-unknown-unknown target"
-    rustup target add wasm32-unknown-unknown
-  }
+  # Both of these run *inside* wasm-client, and the directory is the point:
+  # rust-toolchain.toml is directory-scoped, so asking rustup from the
+  # repository root answers for whatever toolchain happens to be default
+  # rather than the pinned one. Get that wrong and the check passes while the
+  # toolchain that does the building has no wasm target. wasm-pack installs it
+  # a moment later and hides the difference -- a repair worth not depending
+  # on, and the same mistake that failed the drift workflow on 2026-09-01.
+  (
+    cd "$ROOT/wasm-client"
+    rustup target list --installed | grep -qx wasm32-unknown-unknown || {
+      echo "==> adding wasm32-unknown-unknown target"
+      rustup target add wasm32-unknown-unknown
+    }
+  )
   # --locked: build the versions in Cargo.lock or fail, never re-resolve.
   # --features wasm: the feature is opt-in so that a site's Rust server can
   # depend on the crate without wasm-bindgen. The browser bundle is the thing

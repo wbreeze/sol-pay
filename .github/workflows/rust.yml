@@ -23,8 +23,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # rust-toolchain.toml pins the channel; this only adds the wasm target.
+      # Run this *in wasm-client*, so rustup reads its rust-toolchain.toml and
+      # adds the target to the pinned toolchain rather than to the runner's
+      # default. This job survived the root-level spelling only because
+      # wasm-pack runs its own `rustup target add` from inside the crate; that
+      # is a repair we should not be depending on.
       - name: Add wasm target
+        working-directory: wasm-client
         run: rustup target add wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2

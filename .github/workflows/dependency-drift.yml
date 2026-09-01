@@ -23,7 +23,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Run this *in wasm-client*, so rustup reads its rust-toolchain.toml and
+      # adds the target to the pinned toolchain. There is no toolchain file at
+      # the repository root, so the root-level spelling adds it to the runner's
+      # default instead, and the first step to enter wasm-client then installs
+      # a fresh 1.89.0 without it -- which is what broke "Check the browser
+      # layer" with `can't find crate for core`.
       - name: Add wasm target
+        working-directory: wasm-client
         run: rustup target add wasm32-unknown-unknown
 
       # Deliberately no rust-cache: the point is a cold, current resolution.

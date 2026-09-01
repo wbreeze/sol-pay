@@ -2,18 +2,26 @@
 //! no signing, no browser. Account order in every builder mirrors the field
 //! order of the matching `#[derive(Accounts)]` struct, which is what Anchor
 //! expects.
+//!
+//! Each builder exists twice: as a method on [`Program`], which stamps that
+//! deployment's address on the instruction, and as a free function against
+//! the canonical deployment. The free ones are the methods with
+//! [`Program::default`] filled in.
 
 use borsh::BorshSerialize;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
 use super::ids::*;
-use super::pda::*;
+use super::program::Program;
 
 /// Anchor discriminators: the first eight bytes of sha256("global:<name>").
 /// Precomputed so the client needs no hash dependency; `tests` below
 /// recomputes them, so a renamed instruction fails the test rather than
 /// silently building a call nobody answers.
+///
+/// These do not vary by deployment: they come from the instruction's name in
+/// the source, not from the address it is deployed at.
 pub mod discriminator {
     pub const INITIALIZE_SITE: [u8; 8] = [85, 52, 128, 208, 7, 224, 178, 79];
     pub const OPEN_CONTRACT: [u8; 8] = [124, 62, 192, 145, 192, 90, 59, 211];
@@ -51,6 +59,167 @@ struct RenewContractArgs {
     new_limit: u64,
 }
 
+impl Program {
+    pub fn initialize_site(
+        &self,
+        authority: &Pubkey,
+        mint: &Pubkey,
+        treasury: &Pubkey,
+        page_price: u64,
+        collection_threshold: u64,
+        min_limit: u64,
+    ) -> Instruction {
+        let (site, _) = self.site_address(authority);
+        Instruction {
+            program_id: self.id(),
+            accounts: vec![
+                AccountMeta::new(*authority, true),
+                AccountMeta::new(site, false),
+                AccountMeta::new_readonly(*mint, false),
+                AccountMeta::new_readonly(*treasury, false),
+                AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
+            ],
+            data: data(
+                discriminator::INITIALIZE_SITE,
+                &InitializeSiteArgs {
+                    page_price,
+                    collection_threshold,
+                    min_limit,
+                },
+            ),
+        }
+    }
+
+    /// Must be preceded in the same transaction by [`Program::approve_checked`]
+    /// naming the contract PDA as delegate for at least `limit`.
+    pub fn open_contract(
+        &self,
+        site: &Pubkey,
+        payer: &Pubkey,
+        payer_token_account: &Pubkey,
+        limit: u64,
+    ) -> Instruction {
+        let (contract, _) = self.contract_address(site, payer);
+        Instruction {
+            program_id: self.id(),
+            accounts: vec![
+                AccountMeta::new(*payer, true),
+                AccountMeta::new_readonly(*site, false),
+                AccountMeta::new(contract, false),
+                AccountMeta::new_readonly(*payer_token_account, false),
+                AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
+            ],
+            data: data(discriminator::OPEN_CONTRACT, &OpenContractArgs { limit }),
+        }
+    }
+
+    /// Signed by the site authority. The payer is absent; the transfer, if the
+    /// threshold is crossed, rides on the delegate approval.
+    #[allow(clippy::too_many_arguments)]
+    pub fn meter_and_settle(
+        &self,
+        site: &Pubkey,
+        authority: &Pubkey,
+        payer: &Pubkey,
+        payer_token_account: &Pubkey,
+        treasury: &Pubkey,
+        mint: &Pubkey,
+        token_program: &Pubkey,
+        page_views: u32,
+    ) -> Instruction {
+        let (contract, _) = self.contract_address(site, payer);
+        Instruction {
+            program_id: self.id(),
+            accounts: vec![
+                AccountMeta::new_readonly(*site, false),
+                AccountMeta::new_readonly(*authority, true),
+                AccountMeta::new_readonly(*payer, false),
+                AccountMeta::new(contract, false),
+                AccountMeta::new(*payer_token_account, false),
+                AccountMeta::new(*treasury, false),
+                AccountMeta::new_readonly(*mint, false),
+                AccountMeta::new_readonly(*token_program, false),
+            ],
+            data: data(
+                discriminator::METER_AND_SETTLE,
+                &MeterAndSettleArgs { page_views },
+            ),
+        }
+    }
+
+    /// Must be preceded by [`Program::approve_checked`] for at least
+    /// `new_limit`.
+    pub fn renew_contract(
+        &self,
+        site: &Pubkey,
+        payer: &Pubkey,
+        payer_token_account: &Pubkey,
+        new_limit: u64,
+    ) -> Instruction {
+        let (contract, _) = self.contract_address(site, payer);
+        Instruction {
+            program_id: self.id(),
+            accounts: vec![
+                AccountMeta::new(*payer, true),
+                AccountMeta::new_readonly(*site, false),
+                AccountMeta::new(contract, false),
+                AccountMeta::new_readonly(*payer_token_account, false),
+                AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
+            ],
+            data: data(discriminator::RENEW_CONTRACT, &RenewContractArgs { new_limit }),
+        }
+    }
+
+    pub fn close_contract(&self, site: &Pubkey, payer: &Pubkey) -> Instruction {
+        let (contract, _) = self.contract_address(site, payer);
+        Instruction {
+            program_id: self.id(),
+            accounts: vec![
+                AccountMeta::new(*payer, true),
+                AccountMeta::new_readonly(*site, false),
+                AccountMeta::new(contract, false),
+            ],
+            data: discriminator::CLOSE_CONTRACT.to_vec(),
+        }
+    }
+
+    /// The authorization step: let the contract PDA move up to `amount` of the
+    /// payer's tokens. `approve` *replaces* any previous allowance, it does not
+    /// add to it, so renewal passes the new limit outright.
+    ///
+    /// An SPL Token instruction, but a deployment-dependent one: the delegate
+    /// it names is this deployment's contract PDA.
+    #[allow(clippy::too_many_arguments)]
+    pub fn approve_checked(
+        &self,
+        token_program: &Pubkey,
+        payer_token_account: &Pubkey,
+        mint: &Pubkey,
+        payer: &Pubkey,
+        site: &Pubkey,
+        amount: u64,
+        decimals: u8,
+    ) -> Instruction {
+        let (contract, _) = self.contract_address(site, payer);
+        let mut buf = Vec::with_capacity(10);
+        buf.push(TAG_APPROVE_CHECKED);
+        buf.extend_from_slice(&amount.to_le_bytes());
+        buf.push(decimals);
+        Instruction {
+            program_id: *token_program,
+            accounts: vec![
+                AccountMeta::new(*payer_token_account, false),
+                AccountMeta::new_readonly(*mint, false),
+                AccountMeta::new_readonly(contract, false),
+                AccountMeta::new_readonly(*payer, true),
+            ],
+            data: buf,
+        }
+    }
+}
+
+// --- the canonical deployment --------------------------------------------
+
 pub fn initialize_site(
     authority: &Pubkey,
     mint: &Pubkey,
@@ -59,25 +228,14 @@ pub fn initialize_site(
     collection_threshold: u64,
     min_limit: u64,
 ) -> Instruction {
-    let (site, _) = site_address(authority);
-    Instruction {
-        program_id: PAY_ON_CHAIN_ID,
-        accounts: vec![
-            AccountMeta::new(*authority, true),
-            AccountMeta::new(site, false),
-            AccountMeta::new_readonly(*mint, false),
-            AccountMeta::new_readonly(*treasury, false),
-            AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
-        ],
-        data: data(
-            discriminator::INITIALIZE_SITE,
-            &InitializeSiteArgs {
-                page_price,
-                collection_threshold,
-                min_limit,
-            },
-        ),
-    }
+    Program::default().initialize_site(
+        authority,
+        mint,
+        treasury,
+        page_price,
+        collection_threshold,
+        min_limit,
+    )
 }
 
 /// Must be preceded in the same transaction by [`approve_checked`] naming the
@@ -88,18 +246,7 @@ pub fn open_contract(
     payer_token_account: &Pubkey,
     limit: u64,
 ) -> Instruction {
-    let (contract, _) = contract_address(site, payer);
-    Instruction {
-        program_id: PAY_ON_CHAIN_ID,
-        accounts: vec![
-            AccountMeta::new(*payer, true),
-            AccountMeta::new_readonly(*site, false),
-            AccountMeta::new(contract, false),
-            AccountMeta::new_readonly(*payer_token_account, false),
-            AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
-        ],
-        data: data(discriminator::OPEN_CONTRACT, &OpenContractArgs { limit }),
-    }
+    Program::default().open_contract(site, payer, payer_token_account, limit)
 }
 
 /// Signed by the site authority. The payer is absent; the transfer, if the
@@ -115,24 +262,16 @@ pub fn meter_and_settle(
     token_program: &Pubkey,
     page_views: u32,
 ) -> Instruction {
-    let (contract, _) = contract_address(site, payer);
-    Instruction {
-        program_id: PAY_ON_CHAIN_ID,
-        accounts: vec![
-            AccountMeta::new_readonly(*site, false),
-            AccountMeta::new_readonly(*authority, true),
-            AccountMeta::new_readonly(*payer, false),
-            AccountMeta::new(contract, false),
-            AccountMeta::new(*payer_token_account, false),
-            AccountMeta::new(*treasury, false),
-            AccountMeta::new_readonly(*mint, false),
-            AccountMeta::new_readonly(*token_program, false),
-        ],
-        data: data(
-            discriminator::METER_AND_SETTLE,
-            &MeterAndSettleArgs { page_views },
-        ),
-    }
+    Program::default().meter_and_settle(
+        site,
+        authority,
+        payer,
+        payer_token_account,
+        treasury,
+        mint,
+        token_program,
+        page_views,
+    )
 }
 
 /// Must be preceded by [`approve_checked`] for at least `new_limit`.
@@ -142,31 +281,35 @@ pub fn renew_contract(
     payer_token_account: &Pubkey,
     new_limit: u64,
 ) -> Instruction {
-    let (contract, _) = contract_address(site, payer);
-    Instruction {
-        program_id: PAY_ON_CHAIN_ID,
-        accounts: vec![
-            AccountMeta::new(*payer, true),
-            AccountMeta::new_readonly(*site, false),
-            AccountMeta::new(contract, false),
-            AccountMeta::new_readonly(*payer_token_account, false),
-            AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
-        ],
-        data: data(discriminator::RENEW_CONTRACT, &RenewContractArgs { new_limit }),
-    }
+    Program::default().renew_contract(site, payer, payer_token_account, new_limit)
 }
 
 pub fn close_contract(site: &Pubkey, payer: &Pubkey) -> Instruction {
-    let (contract, _) = contract_address(site, payer);
-    Instruction {
-        program_id: PAY_ON_CHAIN_ID,
-        accounts: vec![
-            AccountMeta::new(*payer, true),
-            AccountMeta::new_readonly(*site, false),
-            AccountMeta::new(contract, false),
-        ],
-        data: discriminator::CLOSE_CONTRACT.to_vec(),
-    }
+    Program::default().close_contract(site, payer)
+}
+
+/// The authorization step: let the contract PDA move up to `amount` of the
+/// payer's tokens. `approve` *replaces* any previous allowance, it does not
+/// add to it, so renewal passes the new limit outright.
+#[allow(clippy::too_many_arguments)]
+pub fn approve_checked(
+    token_program: &Pubkey,
+    payer_token_account: &Pubkey,
+    mint: &Pubkey,
+    payer: &Pubkey,
+    site: &Pubkey,
+    amount: u64,
+    decimals: u8,
+) -> Instruction {
+    Program::default().approve_checked(
+        token_program,
+        payer_token_account,
+        mint,
+        payer,
+        site,
+        amount,
+        decimals,
+    )
 }
 
 // --- SPL Token instructions the flow needs -------------------------------
@@ -178,36 +321,11 @@ pub fn close_contract(site: &Pubkey, payer: &Pubkey) -> Instruction {
 const TAG_APPROVE_CHECKED: u8 = 13;
 const TAG_REVOKE: u8 = 5;
 
-/// The authorization step: let the contract PDA move up to `amount` of the
-/// payer's tokens. `approve` *replaces* any previous allowance, it does not
-/// add to it, so renewal passes the new limit outright.
-pub fn approve_checked(
-    token_program: &Pubkey,
-    payer_token_account: &Pubkey,
-    mint: &Pubkey,
-    payer: &Pubkey,
-    site: &Pubkey,
-    amount: u64,
-    decimals: u8,
-) -> Instruction {
-    let (contract, _) = contract_address(site, payer);
-    let mut buf = Vec::with_capacity(10);
-    buf.push(TAG_APPROVE_CHECKED);
-    buf.extend_from_slice(&amount.to_le_bytes());
-    buf.push(decimals);
-    Instruction {
-        program_id: *token_program,
-        accounts: vec![
-            AccountMeta::new(*payer_token_account, false),
-            AccountMeta::new_readonly(*mint, false),
-            AccountMeta::new_readonly(contract, false),
-            AccountMeta::new_readonly(*payer, true),
-        ],
-        data: buf,
-    }
-}
-
 /// Withdraw the authorization. Worth pairing with `close_contract`.
+///
+/// Free-standing rather than a [`Program`] method: revoking names only the
+/// token account and its owner, so it says nothing about which deployment
+/// held the allowance.
 pub fn revoke(token_program: &Pubkey, payer_token_account: &Pubkey, payer: &Pubkey) -> Instruction {
     Instruction {
         program_id: *token_program,
@@ -233,6 +351,10 @@ mod tests {
         d
     }
 
+    fn k(b: u8) -> Pubkey {
+        Pubkey::new_from_array([b; 32])
+    }
+
     #[test]
     fn discriminators_match_instruction_names() {
         assert_eq!(discriminator::INITIALIZE_SITE, expect("initialize_site"));
@@ -251,5 +373,45 @@ mod tests {
         assert_eq!(ix.accounts.len(), 8);
         assert!(ix.accounts[1].is_signer, "authority signs");
         assert!(ix.accounts[3].is_writable, "contract is written");
+    }
+
+    /// Every program instruction carries the deployment's own address, and
+    /// the free functions carry the canonical one.
+    #[test]
+    fn instructions_are_stamped_with_the_deployment_that_built_them() {
+        let mine = Program::new(k(9));
+        for ix in [
+            mine.initialize_site(&k(1), &k(2), &k(3), 10, 100, 50),
+            mine.open_contract(&k(1), &k(2), &k(3), 500),
+            mine.meter_and_settle(&k(1), &k(2), &k(3), &k(4), &k(5), &k(6), &TOKEN_PROGRAM_ID, 3),
+            mine.renew_contract(&k(1), &k(2), &k(3), 900),
+            mine.close_contract(&k(1), &k(2)),
+        ] {
+            assert_eq!(ix.program_id, k(9));
+        }
+        assert_eq!(close_contract(&k(1), &k(2)).program_id, PAY_ON_CHAIN_ID);
+    }
+
+    /// The delegate an approval names is a PDA, so it moves with the
+    /// deployment even though the instruction itself belongs to SPL Token.
+    #[test]
+    fn an_approval_delegates_to_the_deployments_own_contract_pda() {
+        let mine = Program::new(k(9));
+        let ix = mine.approve_checked(&TOKEN_PROGRAM_ID, &k(1), &k(2), &k(3), &k(4), 500, 6);
+        assert_eq!(ix.program_id, TOKEN_PROGRAM_ID, "still an SPL instruction");
+        assert_eq!(ix.accounts[2].pubkey, mine.contract_address(&k(4), &k(3)).0);
+        assert_ne!(
+            ix.accounts[2].pubkey,
+            approve_checked(&TOKEN_PROGRAM_ID, &k(1), &k(2), &k(3), &k(4), 500, 6).accounts[2]
+                .pubkey,
+            "a different deployment delegates to a different PDA"
+        );
+    }
+
+    #[test]
+    fn the_free_functions_are_the_canonical_deployment() {
+        let c = Program::default();
+        assert_eq!(open_contract(&k(1), &k(2), &k(3), 500), c.open_contract(&k(1), &k(2), &k(3), 500));
+        assert_eq!(close_contract(&k(1), &k(2)), c.close_contract(&k(1), &k(2)));
     }
 }

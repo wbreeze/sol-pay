@@ -1,7 +1,7 @@
 # sol-pay-client — API specification
 
-Status: draft, revised 2026-08-31. §6.2 through §6.5 are implemented; §6.6 is
-documentation only, by decision.
+Status: draft, revised 2026-09-01. §4.5 and §6.1 through §6.5 are implemented;
+§6.6 is documentation only, by decision.
 
 
 This specifies the client library that a site integrates. It is the companion
@@ -172,12 +172,47 @@ subscribes, the site will want the meter to stop. Simply not calling
 `meter_and_settle` is not enough: the payer's delegate approval stays in place,
 and because a token account has exactly one delegate, that dormant approval
 blocks the payer from opening a contract with any other site. Close the
-contract *and* revoke -- which is what `close_contract_tx` does (§6.5).
+contract *and* revoke -- which is what `close_and_revoke` does (§6.5).
 
 Closing forgives the residue, so the site absorbs whatever was unpaid. That is
 bounded below the collection threshold by construction, so it is small, but it
 is not nothing, and it is a real cost of converting a metered reader into a
 subscriber.
+
+### 4.5 Which deployment they address
+
+Decided 2026-09-01: the program id is a default, not a constraint.
+
+The `Site` PDA is seeded by authority, so one deployment already serves many
+sites with independent pricing, and a single canonical deployment remains the
+intended model. But compiling the id in as the *only* id means an integrator
+who wants their own deployment cannot use the published package at all. That
+is a reason to reject the library, and it costs almost nothing to remove.
+
+`core::Program` holds one address. `Program::default()` is the canonical
+deployment, `Program::new(id)` is any other. Every derivation, instruction and
+error name hangs off it as a method, and the free functions in `core::pda`,
+`core::ix`, `core::tx` and `core::error` are those same methods with the
+default filled in -- so the common case costs nothing and the override costs
+one constructor argument. Across the WASM boundary the same thing is the
+`PayOnChain` class (§6.7).
+
+Three consequences worth stating outright:
+
+- **`error::cause` follows the deployment too.** It decides "is this one of
+  ours" by comparing the raising program against the handle's address. Had the
+  override reached the instruction builders but not this comparison, a site on
+  its own deployment would have seen every named failure in §6.4 quietly
+  degrade to `Unknown` -- the library's error vocabulary lost to exactly the
+  integrator the override was built for.
+- **`approve_checked` is deployment-dependent**, despite being an SPL Token
+  instruction, because the delegate it names is the contract PDA.
+- **`revoke` is not.** It names only the token account and its owner, so it
+  says nothing about which deployment held the allowance, and stays free.
+
+Nothing is verified. An address with no program behind it builds perfectly
+good instructions that fail at the runtime; confirming a deployment exists
+needs a network this library does not have and does not want.
 
 ## 5. Two published artifacts
 
@@ -201,8 +236,9 @@ those ranges become the real compatibility contract on the day this ships.
 
 ### 6.1 Write path — exists
 
-Instruction builders in `core::ix`, address derivation in `core::pda`. Every
-builder stays public, so an integrator can compose transactions their own way.
+Instruction builders in `core::ix`, address derivation in `core::pda`, both
+also reachable as methods on `core::Program` (§4.5). Every builder stays
+public, so an integrator can compose transactions their own way.
 
 ### 6.2 Read path — `core::state`, `core::units`
 
@@ -390,11 +426,16 @@ a README. It is the rule an integrator gets wrong once and then debugs for an
 hour, and the program deliberately refuses to trust the client on it.
 
 ```rust
-// core::tx — the module name carries the `_tx`, so the functions do not.
-pub fn open_contract(..)  -> [Instruction; 2];  // approve_checked, open_contract
-pub fn renew_contract(..) -> [Instruction; 2];  // approve_checked, renew_contract
-pub fn close_contract(..) -> [Instruction; 2];  // close_contract, revoke
+// core::tx, and the same three names as methods on core::Program.
+pub fn approve_and_open(..)  -> [Instruction; 2];  // approve_checked, open_contract
+pub fn approve_and_renew(..) -> [Instruction; 2];  // approve_checked, renew_contract
+pub fn close_and_revoke(..)  -> [Instruction; 2];  // close_contract, revoke
 ```
+
+The names say the pair and its order rather than repeating the name of the
+instruction they wrap. The module used to supply that distinction -- `tx::open_contract`
+against `ix::open_contract` -- but once both are methods on `Program` the
+module namespace is gone and the two would collide outright.
 
 Fixed-size arrays, not `Vec`: the length is part of what each one promises.
 
@@ -402,7 +443,7 @@ Convenience, not a gate: the individual builders stay public and nothing is
 reachable only through these. They exist so the correct thing is also the
 shortest thing to write.
 
-`close_contract_tx` pairs the close with a revoke. The leftover approval is
+`close_and_revoke` pairs the close with a revoke. The leftover approval is
 inert once the contract account is gone -- the PDA can no longer sign -- but it
 stays visible in the payer's wallet until withdrawn.
 
@@ -456,6 +497,23 @@ Leaning to dropping it and specifying the field set here instead.
 Every item above gets a `wasm_bindgen` wrapper on the existing convention:
 camelCase `js_name`, base58 strings for addresses, `JsError` for failures.
 
+The split follows §4.5. Anything that depends on which deployment is being
+addressed is a method on the `PayOnChain` class; everything else -- decoding,
+unit conversion, preflight arithmetic, `diagnose`, `revoke` -- stays a free
+export, because it is the same whoever deployed the program.
+
+```js
+const pay = new PayOnChain();               // the canonical deployment
+const pay = new PayOnChain(yourProgramId);  // your own
+const [approve, open] = pay.approveAndOpen(...);
+```
+
+Unlike Rust, the JS side does *not* also carry free functions for the
+deployment-dependent calls. A second spelling of every builder earns its place
+in Rust, where it keeps an existing API intact for one line of forwarding; in
+JS there is nothing yet to keep intact, and the class is where a reader will
+look for configuration anyway.
+
 One constraint: `u64` amounts must cross as `BigInt`, not `number`. A JS
 number loses precision above 2^53, and while USDC balances will not reach it, a
 library that silently truncates is not one an integrator can audit.
@@ -490,16 +548,9 @@ program is worse than no predicate.
 
 ## 9. Open questions
 
-### 9.1 Program id: fixed or overridable?
+Program id, fixed or overridable, was one of these. It was settled on
+2026-09-01 in favour of the override and now lives in §4.5.
 
-The id is compiled in, so a published package is bound to one deployment. The
-`Site` PDA is seeded by authority, so one deployment already serves many sites
-with independent pricing -- which suggests a single canonical deployment is the
-intended model and the fixed id is a feature. But an integrator wanting their
-own deployment then cannot use the published package at all. An override
-defaulting to the canonical id costs little and removes a reason to reject the
-library.
-
-### 9.2 Does WASM discourage adoption; should a plain-JS package exist?
+### 9.1 Does WASM discourage adoption; should a plain-JS package exist?
 
 Raised, deferred, not analysed.

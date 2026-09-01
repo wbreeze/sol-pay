@@ -12,7 +12,7 @@ use anchor_spl::token::spl_token;
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 
-use sol_pay_client::core::{ids, ix as client, pda, state as client_state};
+use sol_pay_client::core::{ids, ix as client, pda, state as client_state, Program};
 
 const DECIMALS: u8 = 6;
 const LIMIT: u64 = 500_000;
@@ -79,6 +79,24 @@ fn client_and_program_agree_on_the_program_id() {
         ids::PAY_ON_CHAIN_ID.to_bytes(),
         pay_on_chain::ID.to_bytes(),
         "the client's hardcoded program id has drifted from declare_id!"
+    );
+}
+
+/// The deployment handle defaults to the program this workspace builds, and
+/// the free functions are that default. An integrator may override the id;
+/// what they get when they do not must still be this program.
+#[test]
+fn the_default_deployment_is_this_program() {
+    assert_eq!(
+        Program::default().id().to_bytes(),
+        pay_on_chain::ID.to_bytes(),
+        "Program::default() has drifted from declare_id!"
+    );
+    let authority = Pubkey::new_unique();
+    assert_eq!(
+        Program::default().site_address(&authority),
+        pda::site_address(&authority),
+        "the free functions are not the default deployment"
     );
 }
 

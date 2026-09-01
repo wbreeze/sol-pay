@@ -11,7 +11,8 @@
 
 use solana_pubkey::Pubkey;
 
-use super::ids::{PAY_ON_CHAIN_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID};
+use super::ids::{TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID};
+use super::program::Program;
 use super::state::TokenAccount;
 
 /// This program's errors, in declaration order. Anchor gives the first the
@@ -137,19 +138,33 @@ pub enum Cause {
     Unknown { program: Pubkey, code: u32 },
 }
 
-/// Name a failure, given the program that raised it and its code.
+impl Program {
+    /// Name a failure, given the program that raised it and its code.
+    ///
+    /// `raised_by` is matched against *this deployment's* address rather than
+    /// the compiled-in one. That is the whole reason this is a method: a site
+    /// running its own deployment would otherwise see every one of its own
+    /// program's errors reported as [`Cause::Unknown`], and lose the named
+    /// failures this module exists to provide.
+    pub fn cause(&self, raised_by: &Pubkey, code: u32) -> Cause {
+        let known = if *raised_by == self.id() {
+            PayError::from_code(code).map(Cause::Program)
+        } else if *raised_by == TOKEN_PROGRAM_ID || *raised_by == TOKEN_2022_PROGRAM_ID {
+            TokenError::from_code(code).map(Cause::Token)
+        } else {
+            None
+        };
+        known.unwrap_or(Cause::Unknown {
+            program: *raised_by,
+            code,
+        })
+    }
+}
+
+/// Name a failure raised under the canonical deployment. See
+/// [`Program::cause`] for any other.
 pub fn cause(program: &Pubkey, code: u32) -> Cause {
-    let known = if *program == PAY_ON_CHAIN_ID {
-        PayError::from_code(code).map(Cause::Program)
-    } else if *program == TOKEN_PROGRAM_ID || *program == TOKEN_2022_PROGRAM_ID {
-        TokenError::from_code(code).map(Cause::Token)
-    } else {
-        None
-    };
-    known.unwrap_or(Cause::Unknown {
-        program: *program,
-        code,
-    })
+    Program::default().cause(program, code)
 }
 
 /// Which constraint on the payer's token account is short, and by how much.
@@ -190,6 +205,7 @@ pub fn diagnose(account: &TokenAccount, unpaid: u64) -> Shortfall {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::ids::PAY_ON_CHAIN_ID;
 
     #[test]
     fn pay_error_codes_round_trip() {
@@ -249,6 +265,35 @@ mod tests {
                 program: other,
                 code: 6003
             }
+        );
+    }
+
+    /// The reason `cause` hangs off the deployment. A site running its own
+    /// copy of the program must get its own errors named; the canonical
+    /// handle, looking at that same address, must not claim them.
+    #[test]
+    fn errors_are_named_against_the_deployment_that_raised_them() {
+        let other = Pubkey::new_from_array([9u8; 32]);
+        let mine = Program::new(other);
+
+        assert_eq!(
+            mine.cause(&other, 6003),
+            Cause::Program(PayError::LimitReached),
+            "a deployment names its own errors"
+        );
+        assert!(
+            matches!(cause(&other, 6003), Cause::Unknown { .. }),
+            "the canonical deployment does not claim another's"
+        );
+        assert!(
+            matches!(mine.cause(&PAY_ON_CHAIN_ID, 6003), Cause::Unknown { .. }),
+            "and the relationship is not symmetric by accident"
+        );
+
+        // SPL is shared ground: both handles name token errors identically.
+        assert_eq!(
+            mine.cause(&TOKEN_PROGRAM_ID, 1),
+            cause(&TOKEN_PROGRAM_ID, 1)
         );
     }
 

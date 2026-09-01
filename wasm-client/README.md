@@ -5,6 +5,7 @@ split so the useful part is not tied to a browser:
 
 - `src/core/` — addresses, instruction construction. Plain Rust, no
   wasm, no I/O. A Leptos/Yew front end, a native tool, or a test can use it.
+  `core::Program` names the deployment everything is built for.
 - `src/lib.rs` — a thin `wasm-bindgen` layer that converts to and from
   JavaScript. Enabled by the default `wasm` feature; turn it off
   (`--no-default-features`) to use the core from native Rust.
@@ -23,15 +24,48 @@ Instructions come out matching `@solana/kit`'s `IInstruction`, so they drop
 straight into a transaction message:
 
 ```js
-import init, { openContract, approveChecked } from './pkg/sol_pay_client.js';
+import init, { PayOnChain } from './pkg/sol_pay_client.js';
 await init();
+
+const pay = new PayOnChain();
 
 // approve must come first: it is what makes the payer chargeable later.
 const ixs = [
-  approveChecked(tokenProgram, payerAta, mint, payer, site, limit, 6),
-  openContract(site, payer, payerAta, limit),
+  pay.approveChecked(tokenProgram, payerAta, mint, payer, site, limit, 6),
+  pay.openContract(site, payer, payerAta, limit),
 ];
+
+// or, the same pair in the right order:
+const same = pay.approveAndOpen(tokenProgram, payerAta, mint, payer, site, limit, 6);
 ```
+
+## Which deployment
+
+The program id is a default, not a constraint. `new PayOnChain()` and
+`Program::default()` address the deployment this package was built against;
+pass an address to either and every derivation, instruction and error name
+follows that deployment instead.
+
+```rust
+use sol_pay_client::core::Program;
+
+let pay = Program::default();          // the canonical deployment
+let pay = Program::new(my_program_id); // my own
+
+let (site, _) = pay.site_address(&authority);
+```
+
+The `Site` PDA is seeded by authority, so one deployment already serves many
+sites with independent pricing and most integrators will never need this. It
+exists so that wanting your own deployment is not a reason to be unable to use
+the package. Nothing is checked: an address with no program behind it builds
+perfectly good instructions that fail at the runtime.
+
+In Rust the free functions in `core::pda`, `core::ix`, `core::tx` and
+`core::error` are the same calls against the default, so the common case reads
+exactly as it did before. In JavaScript the deployment-dependent calls live
+only on the class; decoding, unit conversion, preflight and `revoke` stay free
+exports, because they are the same whoever deployed the program.
 
 The payer's wallet address is the only thing the library needs to identify a
 contract. Where that address came from -- a login, an SSO session, a wallet

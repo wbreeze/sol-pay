@@ -16,12 +16,25 @@ split so the useful part is not tied to a browser:
 ```
 rustup target add wasm32-unknown-unknown
 cargo test                                        # core tests, native
+cargo run --example open_contract                 # the write path, printed
 wasm-pack build --target web -- --features wasm   # browser bundle in ./pkg
 ```
 
 Or `bin/test-rust` and `bin/build-rust --client` from the repository root,
 which add `--locked` and, for the program, everything the LiteSVM harness
 needs.
+
+`examples/open_contract.rs` is the browser's half of an integration in about
+sixty lines: derive the addresses, convert the amount, build the two
+instructions a payer signs, stop. It is also a check on this crate's public
+surface. An example links the library as an external crate, so it reaches only
+what an integrator can reach, and `cargo test` builds it -- so a change that
+breaks a real call site fails the test run rather than waiting for someone to
+integrate against a release.
+
+There is no matching example for the server's half. This crate decodes account
+bytes and never produces them, so showing the read path honestly needs real
+accounts from a cluster rather than a fixture that can quietly go stale.
 
 ## Shape of the output
 

@@ -22,9 +22,3 @@ Unless you explicitly state otherwise, any contribution intentionally
 submitted for inclusion in the work by you, as defined in the Apache-2.0
 licence, shall be dual licensed as above, without any additional terms or
 conditions.
-
-## Third-party material
-
-Attribution for third-party material — currently the favicon — is in
-[`NOTICE.md`](NOTICE.md). That file used to be the contents of this one, which
-declared no project licence at all.

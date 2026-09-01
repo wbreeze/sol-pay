@@ -7,27 +7,25 @@ Note: This is a work in progress. Do try to implement. Do not use as
 a reference code base or example. Do not expect it to work.
 
 
-## Development
+## What is here
 
-Run `pnpm install` to install dependencies end get started.
+Two Rust crates and nothing else:
 
-Copy `.env.example` to `.env` and edit the environment variables
-appropriately.
+- `pay-on-chain` — the metering program, built with the
+  [Anchor framework][anchor], and its LiteSVM test suite.
+- `wasm-client` — the client library a site integrates, published as a crate
+  and as a browser bundle. See `wasm-client/SPEC.md`.
 
-Run `pnpm run dev` or simply `./bin/serve` to start the development server
-and rebuild the application on file changes.
-
-Run `solana-test-validator` to start a testing Solana block chain on localhost.
-
-Find the Solana on-chain programs in the `pay-on-chain` directory.
-
-These use the [Anchor framework][anchor] for on chain smart contracts.  They
-use the [Codama generator][codama] to [generate a client in JavaScript][render]
-from the Anchor IDL.
+There is no front end. A Next.js application and its AWS Amplify deployment
+configuration used to live here; both were removed once the client library
+became the thing this repository ships. Anything that replaces them will be
+built on `wasm-client`, in WebAssembly rather than JavaScript.
 
 [anchor]: https://www.anchor-lang.com/docs
-[render]: https://github.com/codama-idl/renderers-js
-[codama]: https://github.com/codama-idl/codama
+
+## Development
+
+Run `solana-test-validator` to start a testing Solana block chain on localhost.
 
 To build the on-chain programs, switch to the `pay-on-chain` directory and
 issue the command, `anchor build`. See [getting started with anchor][ags]
@@ -126,5 +124,4 @@ Dual licensed under either of
 - Apache License, Version 2.0 ([`LICENSE-APACHE`](LICENSE-APACHE))
 - MIT license ([`LICENSE-MIT`](LICENSE-MIT))
 
-at your option. See [`LICENSE.md`](LICENSE.md) for why both, and
-[`NOTICE.md`](NOTICE.md) for third-party attributions.
+at your option. See [`LICENSE.md`](LICENSE.md) for why both.

@@ -231,6 +231,5 @@ surprise during someone else's work.
 ## Licence
 
 Dual licensed under MIT or Apache-2.0, at your option — the Rust ecosystem
-default. Copies are in this directory; the statement of intent, and the
-third-party attributions, are at the repository root in `LICENSE.md` and
-`NOTICE.md`.
+default. Copies are in this directory, so they ship inside both published
+artifacts; the statement of intent is at the repository root in `LICENSE.md`.

@@ -1,8 +1,0 @@
-{
-  "rules": [
-    {
-      "pathPattern": "/api/tx",
-      "apiPath": "/api/tx"
-    }
-  ]
-}

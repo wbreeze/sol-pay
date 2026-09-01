@@ -19,7 +19,7 @@
 use solana_pubkey::Pubkey;
 
 /// Anchor account discriminators: the first eight bytes of
-/// sha256("account:<StructName>"). Precomputed for the same reason the
+/// `sha256("account:<StructName>")`. Precomputed for the same reason the
 /// instruction discriminators are; the parity tests recompute them.
 pub mod discriminator {
     pub const SITE: [u8; 8] = [143, 255, 52, 15, 65, 165, 94, 49];

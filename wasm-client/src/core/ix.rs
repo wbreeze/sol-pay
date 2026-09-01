@@ -15,7 +15,7 @@ use solana_pubkey::Pubkey;
 use super::ids::*;
 use super::program::Program;
 
-/// Anchor discriminators: the first eight bytes of sha256("global:<name>").
+/// Anchor discriminators: the first eight bytes of `sha256("global:<name>")`.
 /// Precomputed so the client needs no hash dependency; `tests` below
 /// recomputes them, so a renamed instruction fails the test rather than
 /// silently building a call nobody answers.

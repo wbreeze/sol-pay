@@ -1,7 +1,8 @@
 # sol-pay-client — API specification
 
 Status: draft, revised 2026-09-01. §4.5, §5 and §6.1 through §6.5 are
-implemented; §6.6 ships nothing, by decision. Nothing is published yet.
+implemented; §6.6 ships nothing, by decision. Published to crates.io and npm
+as 0.1.0 on 2026-09-01.
 
 
 This specifies the client library that a site integrates. It is the companion

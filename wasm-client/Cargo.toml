@@ -1,6 +1,6 @@
 [package]
 name = "sol-pay-client"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Instruction builders for the pay-on-chain metering program, usable from WASM or native Rust"
 license = "MIT OR Apache-2.0"

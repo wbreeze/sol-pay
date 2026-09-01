@@ -21,7 +21,7 @@ jobs:
     name: resolve fresh and build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # Run this *in wasm-client*, so rustup reads its rust-toolchain.toml and
       # adds the target to the pinned toolchain. There is no toolchain file at

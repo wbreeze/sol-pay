@@ -1,8 +1,7 @@
 # sol-pay-client — API specification
 
 Status: draft, revised 2026-09-01. §4.5, §5 and §6.1 through §6.5 are
-implemented; §6.6 is documentation only, by decision. Nothing is published
-yet.
+implemented; §6.6 ships nothing, by decision. Nothing is published yet.
 
 
 This specifies the client library that a site integrates. It is the companion
@@ -487,7 +486,8 @@ stays visible in the payer's wallet until withdrawn.
 
 ### 6.6 Wallet sign-in — documented, not shipped
 
-Decided 2026-08-31: **the library does not implement SIWS verification.** This
+Decided 2026-08-31 and finished 2026-09-01: **the library ships no sign-in code
+at all** — not verification, not message construction, not a message type. This
 section specifies what an integrator may use, and names what to use.
 
 It is one option, not a requirement, and it is deliberately absent from the
@@ -524,11 +524,18 @@ left to the reader:
   `contract_address` and the payment core takes over. Everything between the
   signature and that derive is the site's session, not ours.
 
-Follow-on not yet decided: whether the browser package still ships a message
-*constructor*. If the integrator verifies with a library that derives the
-expected message from its own input type, our constructor is a redundant second
-definition of the same format -- the argument above applied to the other half.
-Leaning to dropping it and specifying the field set here instead.
+**The message constructor is dropped too** (decided 2026-09-01), which is the
+argument above applied to the other half. Verification and construction are the
+same format read in two directions: a library that verifies derives the
+expected message from its own input type, so a constructor of ours would be a
+second definition of a byte-exact format, and two definitions of one format
+disagree eventually. Whichever library the integrator verifies with builds the
+message as well.
+
+What replaces it is this section. The field set is named above, and the ABNF
+that orders and formats those fields belongs to the SIWS specification rather
+than to this document or this crate -- pointing at the authority is the whole
+technique, here as with log parsing and RPC.
 
 ### 6.7 JavaScript surface
 
@@ -578,9 +585,10 @@ a `Pubkey` or accepts one.
 
 ## 7. What the library never does
 
-Signing, signature verification, RPC, retries, storage, routing, rendering,
-session management. It builds instructions and decodes bytes. The integrator
-owns the wallet adapter, the connection, the session, and the page.
+Signing, signature verification, sign-in message construction, RPC, retries,
+storage, routing, rendering, session management. It builds instructions and
+decodes bytes. The integrator owns the wallet adapter, the connection, the
+session, and the page.
 
 This is the boundary integrators get wrong, so it is stated here and repeated
 in the README.

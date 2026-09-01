@@ -111,6 +111,12 @@ contract. Where that address came from -- a login, an SSO session, a wallet
 sign-in -- is the site's business, and this crate has no opinion about it. See
 `SPEC.md` §4.
 
+Sign In With Solana in particular: this crate neither verifies a sign-in
+message nor builds one. Both halves are the same byte-exact format, and
+whichever library you verify with builds it too -- a second definition here
+would only disagree with yours eventually. `SPEC.md` §6.6 names what to use
+and the three things that are easy to get wrong.
+
 Signing is deliberately not here. Wallet Standard is browser JavaScript, so
 the wallet adapter assembles and signs; this crate decides *what* gets signed.
 

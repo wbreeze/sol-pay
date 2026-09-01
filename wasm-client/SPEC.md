@@ -561,6 +561,21 @@ One constraint: `u64` amounts must cross as `BigInt`, not `number`. A JS
 number loses precision above 2^53, and while USDC balances will not reach it, a
 library that silently truncates is not one an integrator can audit.
 
+The generated `.d.ts` carries four exports that are not part of this surface:
+`Pubkey`, `Hash`, `Instruction` and `Instructions`, from `solana-pubkey`,
+`solana-instruction` and `solana-hash`. Those crates declare `wasm-bindgen`
+and `js-sys` under `cfg(target_arch = "wasm32")`, neither optional nor
+feature-gated, so their own bindings appear in any browser build that uses
+them. Confirmed against the published manifests 2026-09-01; there is no
+setting that removes them.
+
+They are outside the compatibility promise of this package, and this section
+is the statement of that: the exported surface is what §6.1 through §6.6
+define, and an upstream release may add to, change, or remove the rest without
+a version bump here meaning anything about it. Addresses cross this boundary
+as base58 strings in both directions, so nothing in the documented API returns
+a `Pubkey` or accepts one.
+
 ## 7. What the library never does
 
 Signing, signature verification, RPC, retries, storage, routing, rendering,

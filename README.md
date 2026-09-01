@@ -119,3 +119,12 @@ When a viewer reaches their limit, the server shows them a screen that
 provides a wrapup of the usage. It offers to renew the limit, or a new limit,
 or to delete the contract after a transfer transaction for unpaid usage.
 
+## Licence
+
+Dual licensed under either of
+
+- Apache License, Version 2.0 ([`LICENSE-APACHE`](LICENSE-APACHE))
+- MIT license ([`LICENSE-MIT`](LICENSE-MIT))
+
+at your option. See [`LICENSE.md`](LICENSE.md) for why both, and
+[`NOTICE.md`](NOTICE.md) for third-party attributions.

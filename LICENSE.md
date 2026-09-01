@@ -1,5 +1,30 @@
-The favicon was generated using graphics from Twitter Twemoji:
-- Graphics Title: 1f506.svg
-- Graphics Author: Copyright 2020 Twitter, Inc and other contributors (https://github.com/twitter/twemoji)
-- Graphics Source: https://github.com/twitter/twemoji/blob/master/assets/svg/1f506.svg
-- Graphics License: CC-BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+# Licence
+
+Copyright (c) 2026 Douglas Lovell.
+
+Licensed under either of
+
+- Apache License, Version 2.0 ([`LICENSE-APACHE`](LICENSE-APACHE) or
+  http://www.apache.org/licenses/LICENSE-2.0)
+- MIT license ([`LICENSE-MIT`](LICENSE-MIT) or
+  http://opensource.org/licenses/MIT)
+
+at your option.
+
+This is the customary dual licence of the Rust ecosystem. MIT is the
+permissive default most integrators already have on their approved list;
+Apache-2.0 adds an explicit patent grant, which MIT does not provide and which
+some legal reviews look for.
+
+## Contribution
+
+Unless you explicitly state otherwise, any contribution intentionally
+submitted for inclusion in the work by you, as defined in the Apache-2.0
+licence, shall be dual licensed as above, without any additional terms or
+conditions.
+
+## Third-party material
+
+Attribution for third-party material — currently the favicon — is in
+[`NOTICE.md`](NOTICE.md). That file used to be the contents of this one, which
+declared no project licence at all.

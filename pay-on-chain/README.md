@@ -9,17 +9,30 @@ with the Rust test template.
 
 [aqs]: https://www.anchor-lang.com/docs/quickstart/local
 
+The JavaScript scaffolding `anchor init` also generates -- `package.json`,
+`tsconfig.json`, `migrations/` -- has been removed. Nothing in this repository
+is written in JavaScript, and `Anchor.toml` runs `cargo test`.
+
 ## Dev
 
-- After checkout, in this directory, run `anchor build`
-- In a separate terminal, from this directory, run `solana-test-validator`
-- Run `anchor test --skip-local-validator`
+From the repository root:
 
-Alteratively, you can allow `anchor test` to start and stop the validator:
 ```
-anchor build
-anchor test
+bin/build-rust --program   # anchor build
+bin/test-rust              # the program suite and the client suite
 ```
+
+**No validator is involved.** The tests run against [LiteSVM][litesvm], an
+in-process SVM that loads the built `.so` directly. `Anchor.toml` sets
+`[scripts] test = "cargo test"`, so `anchor test` reaches the same assertions,
+but it first starts a local validator and deploys to it -- and then nothing
+uses either. `bin/test-rust` is the shorter path and the one CI runs.
+
+`solana-test-validator` is wanted for one thing only: deploying the program
+locally and driving it by hand. If the clone is fresh, read "Program id"
+below before doing that.
+
+[litesvm]: https://github.com/LiteSVM/litesvm
 
 ## Program id
 

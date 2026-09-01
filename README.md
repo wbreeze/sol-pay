@@ -25,8 +25,6 @@ built on `wasm-client`, in WebAssembly rather than JavaScript.
 
 ## Development
 
-Run `solana-test-validator` to start a testing Solana block chain on localhost.
-
 To build the on-chain programs, switch to the `pay-on-chain` directory and
 issue the command, `anchor build`. See [getting started with anchor][ags]
 for further instructions about working with the anchor programs.
@@ -35,6 +33,8 @@ for further instructions about working with the anchor programs.
 
 Deploying from a fresh clone needs one extra step, `anchor keys sync`, because
 the program keypair is not in the repository. See `pay-on-chain/README.md`.
+A local deploy is also the only thing here that wants `solana-test-validator`
+running. Building and testing do not: the test suite is in-process.
 
 Three scripts wrap the Rust side:
 
@@ -56,8 +56,8 @@ program must be built first.
 The WASM client lives in `wasm-client`. Its core is plain Rust with no browser
 dependency, wrapped in a thin `wasm-bindgen` layer; see `wasm-client/README.md`.
 
-Both scripts pass `--locked`, so they build the versions in the committed
-`Cargo.lock` files or fail rather than re-resolving. `.github/workflows/rust.yml`
+`build-rust` and `test-rust` pass `--locked`, so they build the versions in the
+committed `Cargo.lock` files or fail rather than re-resolving. `.github/workflows/rust.yml`
 runs the same locked build and both suites on push; `dependency-drift.yml`
 re-resolves from scratch weekly, so an upstream release that breaks the version
 ranges shows up as a red scheduled run instead of a surprise.

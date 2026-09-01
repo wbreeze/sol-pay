@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+#
+# Move both Cargo.lock files to the newest versions inside the ranges their
+# Cargo.toml files already allow, then prove the result builds and passes.
+#
+#   bin/update-locks             both crates
+#   bin/update-locks --program   just pay-on-chain
+#   bin/update-locks --client    just wasm-client
+#
+# This is the deliberate answer to a dependency-drift report. It never crosses
+# a major boundary -- `cargo update` will not -- so a newer major sitting
+# outside a range stays outside it, and moving there is a manifest edit and a
+# decision, not this.
+#
+# It runs the tests rather than telling you to. The version facts this repo
+# publishes are meant to live in a lock or a job, never in a paragraph asking
+# the reader to check, and a lock nobody built from is exactly that paragraph.
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+want_program=1
+want_client=1
+case "${1:-}" in
+  --program) want_client=0 ;;
+  --client)  want_program=0 ;;
+  "")        ;;
+  *) echo "usage: $(basename "$0") [--program|--client]" >&2; exit 2 ;;
+esac
+
+# The whole value here is being able to read what moved. Start from a clean
+# slate so this run's diff is this run's doing.
+dirty="$(cd "$ROOT" && git diff --name-only -- '*/Cargo.lock')"
+if [ -n "$dirty" ]; then
+  echo "error: a lock file is already modified:" >&2
+  echo "$dirty" | sed 's/^/  /' >&2
+  echo "Commit or restore it first, so this run's diff is legible." >&2
+  exit 1
+fi
+
+# Each `cargo update` runs inside its own crate, which is what selects both
+# the lock it rewrites and, through rust-toolchain.toml, the toolchain that
+# rewrites it.
+if [ "$want_client" = 1 ]; then
+  echo "==> cargo update (wasm-client)"
+  ( cd "$ROOT/wasm-client" && cargo update )
+fi
+
+if [ "$want_program" = 1 ]; then
+  echo "==> cargo update (pay-on-chain)"
+  ( cd "$ROOT/pay-on-chain" && cargo update )
+fi
+
+echo
+echo "==> what moved"
+if ! ( cd "$ROOT" && git diff --stat -- '*/Cargo.lock' | grep -q . ); then
+  echo "nothing; every dependency was already the newest inside its range."
+  echo "done."
+  exit 0
+fi
+( cd "$ROOT" && git diff --stat -- '*/Cargo.lock' )
+
+echo
+echo "==> bin/test-rust"
+if ! "$ROOT/bin/test-rust"; then
+  echo >&2
+  echo "The updated locks do not pass. They are left in place on purpose --" >&2
+  echo "the versions that broke it are the evidence. To see what changed:" >&2
+  echo "  git diff -- '*/Cargo.lock' | grep -E '^[+-](name|version)'" >&2
+  echo "To put them back:" >&2
+  echo "  git checkout -- '*/Cargo.lock'" >&2
+  exit 1
+fi
+
+echo
+echo "Locks updated and both suites pass. Review the diff and commit."

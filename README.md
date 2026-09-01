@@ -36,7 +36,7 @@ the program keypair is not in the repository. See `pay-on-chain/README.md`.
 A local deploy is also the only thing here that wants `solana-test-validator`
 running. Building and testing do not: the test suite is in-process.
 
-Three scripts wrap the Rust side:
+Four scripts wrap the Rust side:
 
 - `./bin/build-rust` builds the Anchor program and the WASM client. Takes
   `--program` or `--client` to do just one.
@@ -46,6 +46,11 @@ Three scripts wrap the Rust side:
   `wasm-client/pkg` and `pay-on-chain/.anchor`. Takes the same two flags. It
   leaves `test-ledger` alone: the local validator's chain state is not build
   output.
+- `./bin/update-locks` moves both `Cargo.lock` files to the newest versions
+  inside the ranges the manifests already allow, prints what moved, and then
+  runs `test-rust` — it does not ask you to. Takes the same two flags. This is
+  the deliberate answer to a dependency-drift report; it never crosses a major
+  boundary, so adopting a newer major stays a manifest edit and a decision.
 
 The program tests run against [LiteSVM][litesvm], an in-process SVM, so they
 need no validator -- but they do load `target/deploy/pay_on_chain.so`, so the

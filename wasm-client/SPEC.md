@@ -1,7 +1,8 @@
 # sol-pay-client — API specification
 
-Status: draft, revised 2026-09-01. §4.5 and §6.1 through §6.5 are implemented;
-§6.6 is documentation only, by decision.
+Status: draft, revised 2026-09-01. §4.5, §5 and §6.1 through §6.5 are
+implemented; §6.6 is documentation only, by decision. Nothing is published
+yet.
 
 
 This specifies the client library that a site integrates. It is the companion
@@ -237,17 +238,30 @@ the one.
 
 ## 5. Two published artifacts
 
-Decided 2026-08-31.
+Decided 2026-08-31, packaged 2026-09-01.
 
 **`sol-pay-client` on crates.io** — the `core` module as a normal Rust crate,
-for a site's Rust server. Requires flipping the feature default: today
-`default = ["wasm"]`, which would drag `wasm-bindgen` into a server build. It
-becomes `default = []` with `wasm` opt-in.
+for a site's Rust server.
 
 **An npm package** — the `wasm-pack --target web` output: the `.wasm`, the JS
 glue, and the generated `.d.ts`.
 
-One source tree, one version number.
+One source tree, one version number. `wasm-pack` derives `pkg/package.json`
+from the `[package]` table in `Cargo.toml`, so name, version, description,
+license and repository are kept in one place rather than two.
+
+The feature default was the thing standing in the way and is now flipped:
+`default = []` with `wasm` opt-in, so a site's Rust server can depend on this
+crate without wasm-bindgen and three serde crates arriving with it. Whatever
+wants the browser bundle asks for the feature by name — `bin/build-rust`
+does, and so does the drift canary, which is now the only job that compiles
+the browser layer against a fresh resolve.
+
+Ordering matters once, at the first publish. Flipping a default feature after
+release is a breaking change for anyone who already depends on the crate, so
+it had to land first; the same is true of any further reshaping of the API
+surface. The registry names are also unclaimed and unreserved — see the
+README's "Publishing" for what to check before the first push.
 
 Carried over from the dependency policy: a published crate's `Cargo.lock` is
 ignored by consumers. They re-resolve inside the ranges in `Cargo.toml`, so

@@ -31,10 +31,12 @@ jobs:
         with:
           workspaces: wasm-client
 
-      # The UI-agnostic core, tested natively without wasm-bindgen.
+      # The default feature set is empty, so this is the UI-agnostic core
+      # tested natively, without wasm-bindgen. The browser bundle step below
+      # is what compiles the wasm layer.
       - name: Test core
         working-directory: wasm-client
-        run: cargo test --locked --no-default-features
+        run: cargo test --locked
 
       # One generation of the solana crates, or two copies of solana-pubkey
       # end up in the tree. This is the check that keeps the README's note
@@ -42,7 +44,7 @@ jobs:
       - name: No duplicate solana crates
         working-directory: wasm-client
         run: |
-          dupes="$(cargo tree --locked --no-default-features -d -e normal | grep -E '^solana-' || true)"
+          dupes="$(cargo tree --locked -d -e normal | grep -E '^solana-' || true)"
           if [ -n "$dupes" ]; then
             echo "Duplicate solana crates in the dependency tree:"
             echo "$dupes"

@@ -34,17 +34,26 @@ jobs:
 
       - name: Test wasm-client core
         working-directory: wasm-client
-        run: cargo test --no-default-features
+        run: cargo test
 
       - name: No duplicate solana crates
         working-directory: wasm-client
         run: |
-          dupes="$(cargo tree --no-default-features -d -e normal | grep -E '^solana-' || true)"
+          dupes="$(cargo tree -d -e normal | grep -E '^solana-' || true)"
           if [ -n "$dupes" ]; then
             echo "Duplicate solana crates after a fresh resolve:"
             echo "$dupes"
             exit 1
           fi
+
+      # The core tests above never touch wasm-bindgen, serde-wasm-bindgen or
+      # serde: those are behind the opt-in `wasm` feature. Without this step a
+      # breaking release in any of them would sail past the canary, since the
+      # bundle is built only in rust.yml against the committed lock. This is
+      # also the only thing in this job that uses the wasm target added above.
+      - name: Check the browser layer
+        working-directory: wasm-client
+        run: cargo check --features wasm --target wasm32-unknown-unknown
 
       - name: Update pay-on-chain
         working-directory: pay-on-chain

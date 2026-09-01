@@ -4,6 +4,24 @@ version = "0.1.0"
 edition = "2021"
 description = "Instruction builders for the pay-on-chain metering program, usable from WASM or native Rust"
 license = "MIT"
+repository = "https://github.com/wbreeze/sol-pay"
+readme = "README.md"
+keywords = ["solana", "wasm", "payments", "micropayments", "anchor"]
+categories = ["cryptography::cryptocurrencies", "wasm", "api-bindings"]
+# What the toolchain file pins and CI actually runs. Not a claim that older
+# compilers fail -- nobody has tried one, and an untested floor is the kind of
+# version fact this repo keeps out of prose.
+rust-version = "1.89"
+# Build output. Cargo already skips gitignored paths when packaging from a
+# git checkout; this makes it true regardless of how the package is built.
+exclude = ["pkg/", "target/", "SPEC.pdf"]
+
+# docs.rs builds with default features, which now means the browser surface
+# would be absent from the rendered documentation. Ask for it, on the target
+# it belongs to.
+[package.metadata.docs.rs]
+features = ["wasm"]
+default-target = "wasm32-unknown-unknown"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -12,8 +30,13 @@ crate-type = ["cdylib", "rlib"]
 # browser-specific, so a Leptos/Yew front end (or a native tool, or a test)
 # can use it directly. The wasm-bindgen layer in lib.rs is a thin wrapper and
 # is the only part that knows it is running in a browser.
+#
+# So `wasm` is opt-in rather than default: a site's Rust server depends on
+# this crate for `core` alone, and a default-on wasm feature would drag
+# wasm-bindgen and three serde crates into that build for nothing. Whatever
+# wants the browser bundle asks for the feature by name -- see bin/build-rust.
 [features]
-default = ["wasm"]
+default = []
 wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:serde", "dep:serde_bytes"]
 
 [dependencies]
@@ -34,6 +57,14 @@ serde_bytes = { version = "0.11", optional = true }
 [dev-dependencies]
 sha2 = "0.10"
 
+# Ignored by consumers of the published crate -- Cargo takes profiles from the
+# top-level workspace only -- but it is what `wasm-pack build` uses here, and
+# bundle size is the whole reason for the hand-rolled SPL instructions.
 [profile.release]
 opt-level = "s"
 lto = true
+
+# Same intent, one layer down: wasm-pack runs wasm-opt over the output, and
+# its default is -O. Match the size-first choice above.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-Os"]

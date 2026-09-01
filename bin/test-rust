@@ -27,9 +27,11 @@ fi
 echo "==> cargo test (pay-on-chain)"
 ( cd "$ROOT/pay-on-chain" && cargo test --locked "$@" )
 
-# --no-default-features drops the `wasm` feature so the UI-agnostic core is
-# tested natively, without wasm-bindgen.
+# The default feature set is empty, so this is the UI-agnostic core tested
+# natively, without wasm-bindgen. The wasm layer is compiled for the target it
+# runs on by `bin/build-rust --client`, which is also what CI does; nothing
+# here type-checks it.
 echo "==> cargo test (wasm-client core)"
-( cd "$ROOT/wasm-client" && cargo test --locked --no-default-features "$@" )
+( cd "$ROOT/wasm-client" && cargo test --locked "$@" )
 
 echo "done."

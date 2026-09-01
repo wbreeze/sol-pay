@@ -43,8 +43,11 @@ if [ "$want_client" = 1 ]; then
     rustup target add wasm32-unknown-unknown
   }
   # --locked: build the versions in Cargo.lock or fail, never re-resolve.
+  # --features wasm: the feature is opt-in so that a site's Rust server can
+  # depend on the crate without wasm-bindgen. The browser bundle is the thing
+  # that wants it, so the browser bundle asks.
   echo "==> wasm-pack build"
-  ( cd "$ROOT/wasm-client" && wasm-pack build --target web -- --locked )
+  ( cd "$ROOT/wasm-client" && wasm-pack build --target web -- --locked --features wasm )
 fi
 
 echo "done."

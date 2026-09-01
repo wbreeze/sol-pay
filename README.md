@@ -36,12 +36,16 @@ for further instructions about working with the anchor programs.
 Deploying from a fresh clone needs one extra step, `anchor keys sync`, because
 the program keypair is not in the repository. See `pay-on-chain/README.md`.
 
-Two scripts wrap the Rust side:
+Three scripts wrap the Rust side:
 
 - `./bin/build-rust` builds the Anchor program and the WASM client. Takes
   `--program` or `--client` to do just one.
 - `./bin/test-rust` runs both test suites, and passes any argument through to
   `cargo test` as a filter.
+- `./bin/clean` removes what `build-rust` produced — both `target` directories,
+  `wasm-client/pkg` and `pay-on-chain/.anchor`. Takes the same two flags. It
+  leaves `test-ledger` alone: the local validator's chain state is not build
+  output.
 
 The program tests run against [LiteSVM][litesvm], an in-process SVM, so they
 need no validator -- but they do load `target/deploy/pay_on_chain.so`, so the

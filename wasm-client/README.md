@@ -5,7 +5,8 @@ split so the useful part is not tied to a browser:
 
 - `src/core/` — addresses, instruction construction. Plain Rust, no
   wasm, no I/O. A Leptos/Yew front end, a native tool, or a test can use it.
-  `core::Program` names the deployment everything is built for.
+  `core::Program` names the deployment and the token program everything is
+  built for.
 - `src/lib.rs` — a thin `wasm-bindgen` layer that converts to and from
   JavaScript. Enabled by the default `wasm` feature; turn it off
   (`--no-default-features`) to use the core from native Rust.
@@ -31,41 +32,58 @@ const pay = new PayOnChain();
 
 // approve must come first: it is what makes the payer chargeable later.
 const ixs = [
-  pay.approveChecked(tokenProgram, payerAta, mint, payer, site, limit, 6),
+  pay.approveChecked(payerAta, mint, payer, site, limit, 6),
   pay.openContract(site, payer, payerAta, limit),
 ];
 
 // or, the same pair in the right order:
-const same = pay.approveAndOpen(tokenProgram, payerAta, mint, payer, site, limit, 6);
+const same = pay.approveAndOpen(payerAta, mint, payer, site, limit, 6);
 ```
 
-## Which deployment
+## Which deployment, and which token program
 
-The program id is a default, not a constraint. `new PayOnChain()` and
-`Program::default()` address the deployment this package was built against;
-pass an address to either and every derivation, instruction and error name
-follows that deployment instead.
+Two things every builder needs, neither of which changes between calls: the
+metering program's address, and the SPL token program the site's mint belongs
+to. Both are defaults rather than constraints, and both are stated once.
 
 ```rust
-use sol_pay_client::core::Program;
+use sol_pay_client::core::{ids, Program};
 
-let pay = Program::default();          // the canonical deployment
-let pay = Program::new(my_program_id); // my own
+let pay = Program::default();          // canonical deployment, SPL Token
+let pay = Program::new(my_program_id); // my own deployment
+let pay = Program::default().with_token_program(ids::TOKEN_2022_PROGRAM_ID);
 
 let (site, _) = pay.site_address(&authority);
 ```
 
-The `Site` PDA is seeded by authority, so one deployment already serves many
-sites with independent pricing and most integrators will never need this. It
-exists so that wanting your own deployment is not a reason to be unable to use
-the package. Nothing is checked: an address with no program behind it builds
-perfectly good instructions that fail at the runtime.
+```js
+const pay = new PayOnChain();
+const pay = new PayOnChain(myProgramId);
+const pay = new PayOnChain().withTokenProgram(token2022ProgramAddress());
+```
+
+The two vary independently, and most integrators will need neither. The `Site`
+PDA is seeded by authority, so one deployment already serves many sites with
+independent pricing; the override exists so that wanting your own deployment is
+not a reason to be unable to use the package.
 
 In Rust the free functions in `core::pda`, `core::ix`, `core::tx` and
-`core::error` are the same calls against the default, so the common case reads
-exactly as it did before. In JavaScript the deployment-dependent calls live
-only on the class; decoding, unit conversion, preflight and `revoke` stay free
-exports, because they are the same whoever deployed the program.
+`core::error` are the same calls against the canonical deployment on SPL Token.
+In JavaScript the calls that depend on either live only on the class; decoding,
+unit conversion, preflight and `diagnose` stay free exports, because they are
+the same whoever deployed the program.
+
+**Get the token program wrong and every instruction for that mint fails at the
+runtime.** It is not a preference: a mint account is *owned* by one token
+program or the other. Since `getAccountInfo` hands you that owner beside the
+mint data you are already decoding, checking costs nothing:
+
+```js
+if (!pay.ownsMint(mintAccount.owner)) { /* wrong token program */ }
+```
+
+The program id has no equivalent check. Confirming a deployment exists needs a
+network, and this crate does not have one.
 
 The payer's wallet address is the only thing the library needs to identify a
 contract. Where that address came from -- a login, an SSO session, a wallet

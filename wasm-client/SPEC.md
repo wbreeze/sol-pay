@@ -179,40 +179,61 @@ bounded below the collection threshold by construction, so it is small, but it
 is not nothing, and it is a real cost of converting a metered reader into a
 subscriber.
 
-### 4.5 Which deployment they address
+### 4.5 Which deployment, and which token program
 
-Decided 2026-09-01: the program id is a default, not a constraint.
+Decided 2026-09-01. Neither is a constraint; both are defaults, and both are
+stated once rather than at every call site.
 
-The `Site` PDA is seeded by authority, so one deployment already serves many
-sites with independent pricing, and a single canonical deployment remains the
-intended model. But compiling the id in as the *only* id means an integrator
-who wants their own deployment cannot use the published package at all. That
-is a reason to reject the library, and it costs almost nothing to remove.
+**The program id.** The `Site` PDA is seeded by authority, so one deployment
+already serves many sites with independent pricing, and a single canonical
+deployment remains the intended model. But compiling the id in as the *only*
+id means an integrator who wants their own deployment cannot use the published
+package at all. That is a reason to reject the library, and it costs almost
+nothing to remove.
 
-`core::Program` holds one address. `Program::default()` is the canonical
-deployment, `Program::new(id)` is any other. Every derivation, instruction and
-error name hangs off it as a method, and the free functions in `core::pda`,
-`core::ix`, `core::tx` and `core::error` are those same methods with the
-default filled in -- so the common case costs nothing and the override costs
-one constructor argument. Across the WASM boundary the same thing is the
-`PayOnChain` class (§6.7).
+**The token program.** A mint belongs to SPL Token or to Token-2022, and every
+instruction that touches the payer's token account has to name the right one.
+Strictly this is a property of the *mint*, not of the deployment -- one
+deployment serves many sites, each site names its own mint, so two sites on one
+deployment could differ. It sits on the handle anyway, because a client
+instance serves one site, and repeating the same word at nine call sites to say
+so is worse. A caller that really does span both holds two handles.
 
-Three consequences worth stating outright:
+`core::Program` carries the pair. `Program::default()` is the canonical
+deployment on SPL Token; `Program::new(id)` changes the first,
+`.with_token_program(id)` the second, and they vary independently. Every
+derivation, instruction and error name hangs off the handle as a method, and
+the free functions in `core::pda`, `core::ix`, `core::tx` and `core::error` are
+those same methods with the default filled in -- so the common case costs
+nothing and each override costs one call. Across the WASM boundary the same
+thing is the `PayOnChain` class (§6.7).
 
-- **`error::cause` follows the deployment too.** It decides "is this one of
-  ours" by comparing the raising program against the handle's address. Had the
+Consequences worth stating outright:
+
+- **`error::cause` follows the deployment.** It decides "is this one of ours"
+  by comparing the raising program against the handle's address. Had the
   override reached the instruction builders but not this comparison, a site on
   its own deployment would have seen every named failure in §6.4 quietly
   degrade to `Unknown` -- the library's error vocabulary lost to exactly the
   integrator the override was built for.
-- **`approve_checked` is deployment-dependent**, despite being an SPL Token
-  instruction, because the delegate it names is the contract PDA.
-- **`revoke` is not.** It names only the token account and its owner, so it
-  says nothing about which deployment held the allowance, and stays free.
+- **`approve_checked` depends on both.** It goes to the handle's token program,
+  and the delegate it names is the handle deployment's contract PDA.
+- **`revoke` depends on the token program alone.** It names only the token
+  account and its owner, so it says nothing about which deployment held the
+  allowance -- but it still has to be *sent* somewhere, so it is a method like
+  the rest rather than the free-standing exception it was for one day.
+- **On `meter_and_settle` the token program is an account, not the callee.**
+  The instruction still goes to the metering program, which CPIs into the token
+  program to move the money.
 
-Nothing is verified. An address with no program behind it builds perfectly
-good instructions that fail at the runtime; confirming a deployment exists
-needs a network this library does not have and does not want.
+Nothing is verified about the program id: an address with no program behind it
+builds perfectly good instructions that fail at the runtime, and confirming a
+deployment exists needs a network this library does not have and does not want.
+The token program has a cheap check, because the answer is already in hand --
+`Program::owns_mint` takes the `owner` that came back beside the mint's data
+from `getAccountInfo` and says whether it matches. Moving a required argument
+into state removes nine chances to get it wrong and adds one; that method is
+the one.
 
 ## 5. Two published artifacts
 
@@ -432,6 +453,9 @@ pub fn approve_and_renew(..) -> [Instruction; 2];  // approve_checked, renew_con
 pub fn close_and_revoke(..)  -> [Instruction; 2];  // close_contract, revoke
 ```
 
+Both instructions in each pair go to programs the handle already names, so
+none of the three takes a program address as an argument.
+
 The names say the pair and its order rather than repeating the name of the
 instruction they wrap. The module used to supply that distinction -- `tx::open_contract`
 against `ix::open_contract` -- but once both are methods on `Program` the
@@ -497,14 +521,19 @@ Leaning to dropping it and specifying the field set here instead.
 Every item above gets a `wasm_bindgen` wrapper on the existing convention:
 camelCase `js_name`, base58 strings for addresses, `JsError` for failures.
 
-The split follows §4.5. Anything that depends on which deployment is being
-addressed is a method on the `PayOnChain` class; everything else -- decoding,
-unit conversion, preflight arithmetic, `diagnose`, `revoke` -- stays a free
-export, because it is the same whoever deployed the program.
+The split follows §4.5. Anything that depends on the deployment or the token
+program is a method on the `PayOnChain` class; everything else -- decoding,
+unit conversion, preflight arithmetic, `diagnose` -- stays a free export,
+because it is the same whoever deployed the program and whichever token
+program the mint belongs to. Two free exports name the token programs
+themselves, so configuring the class does not mean hardcoding base58.
 
 ```js
-const pay = new PayOnChain();               // the canonical deployment
-const pay = new PayOnChain(yourProgramId);  // your own
+const pay = new PayOnChain();                    // canonical, SPL Token
+const pay = new PayOnChain(yourProgramId);       // your own deployment
+const pay = new PayOnChain().withTokenProgram(   // a Token-2022 mint
+  token2022ProgramAddress(),
+);
 const [approve, open] = pay.approveAndOpen(...);
 ```
 
@@ -545,12 +574,3 @@ Every claim this document makes about the program is pinned by a test in
 
 The last one is the point of the exercise. A predicate that disagrees with the
 program is worse than no predicate.
-
-## 9. Open questions
-
-Program id, fixed or overridable, was one of these. It was settled on
-2026-09-01 in favour of the override and now lives in §4.5.
-
-### 9.1 Does WASM discourage adoption; should a plain-JS package exist?
-
-Raised, deferred, not analysed.

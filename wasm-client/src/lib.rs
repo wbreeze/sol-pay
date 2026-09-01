@@ -39,7 +39,6 @@ mod bindings {
 
     use crate::core::error;
     use crate::core::ids;
-    use crate::core::ix;
     use crate::core::preflight;
     use crate::core::program;
     use crate::core::state;
@@ -217,9 +216,17 @@ mod bindings {
         state::Contract::decode(data).map_err(|e| JsError::new(&e.to_string()))
     }
 
+    /// The SPL Token program. A `PayOnChain` uses this unless told otherwise.
     #[wasm_bindgen(js_name = tokenProgramAddress)]
     pub fn token_program_address() -> String {
         ids::TOKEN_PROGRAM_ID.to_string()
+    }
+
+    /// The Token-2022 program, for passing to `withTokenProgram` without
+    /// hardcoding a base58 string.
+    #[wasm_bindgen(js_name = token2022ProgramAddress)]
+    pub fn token_2022_program_address() -> String {
+        ids::TOKEN_2022_PROGRAM_ID.to_string()
     }
 
     // --- accounts ---------------------------------------------------------
@@ -354,38 +361,25 @@ mod bindings {
         })
     }
 
-    // --- instructions with no deployment in them --------------------------
-
-    /// Withdraw the authorization. Names only the token account and its
-    /// owner, so it says nothing about which deployment held the allowance.
-    #[wasm_bindgen(js_name = revoke)]
-    pub fn revoke(
-        token_program: &str,
-        payer_token_account: &str,
-        payer: &str,
-    ) -> Result<JsValue, JsError> {
-        out(ix::revoke(
-            &key(token_program, "tokenProgram")?,
-            &key(payer_token_account, "payerTokenAccount")?,
-            &key(payer, "payer")?,
-        ))
-    }
-
     // --- the deployment ---------------------------------------------------
 
-    /// One deployment of the metering program, and everything that depends on
-    /// which deployment that is.
+    /// One deployment of the metering program, the token program the site's
+    /// mint belongs to, and everything that depends on either.
     ///
     /// ```js
-    /// const pay = new PayOnChain();              // the canonical deployment
-    /// const pay = new PayOnChain("YourPr0gram…"); // your own
+    /// const pay = new PayOnChain();                    // canonical, SPL Token
+    /// const pay = new PayOnChain(myProgramId);         // my own deployment
+    /// const pay = new PayOnChain().withTokenProgram(   // a Token-2022 mint
+    ///   token2022ProgramAddress(),
+    /// );
     /// ```
     ///
-    /// The program id is a default, not a constraint: a site that deploys its
-    /// own copy of the metering program passes that address here, and every
-    /// derivation, instruction and error name follows it. Nothing is verified
-    /// -- an address with no program behind it builds perfectly good
-    /// instructions that fail at the runtime.
+    /// Both are defaults, not constraints: a site that deploys its own copy of
+    /// the metering program passes that address here, and every derivation,
+    /// instruction and error name follows it. Nothing is verified -- an
+    /// address with no program behind it builds perfectly good instructions
+    /// that fail at the runtime. For the token program there is a cheap check,
+    /// `ownsMint`.
     #[wasm_bindgen]
     pub struct PayOnChain {
         inner: program::Program,
@@ -407,6 +401,34 @@ mod bindings {
         #[wasm_bindgen(getter, js_name = programAddress)]
         pub fn program_address(&self) -> String {
             self.inner.id().to_string()
+        }
+
+        /// The token program this instance builds against.
+        #[wasm_bindgen(getter, js_name = tokenProgram)]
+        pub fn token_program(&self) -> String {
+            self.inner.token_program().to_string()
+        }
+
+        /// The same deployment, against a different token program. Returns a
+        /// new instance; this one is unchanged.
+        #[wasm_bindgen(js_name = withTokenProgram)]
+        pub fn with_token_program(&self, token_program: &str) -> Result<PayOnChain, JsError> {
+            Ok(PayOnChain {
+                inner: self
+                    .inner
+                    .with_token_program(key(token_program, "tokenProgram")?),
+            })
+        }
+
+        /// Whether a mint account belongs to this instance's token program.
+        /// Pass the `owner` that came back beside the mint data from
+        /// `getAccountInfo`. A `false` here means every instruction this
+        /// instance builds for that mint will fail at the runtime.
+        #[wasm_bindgen(js_name = ownsMint)]
+        pub fn owns_mint(&self, mint_account_owner: &str) -> Result<bool, JsError> {
+            Ok(self
+                .inner
+                .owns_mint(&key(mint_account_owner, "mintAccountOwner")?))
         }
 
         // --- derivation ---------------------------------------------------
@@ -446,7 +468,6 @@ mod bindings {
         #[wasm_bindgen(js_name = approveAndOpen)]
         pub fn approve_and_open(
             &self,
-            token_program: &str,
             payer_token_account: &str,
             mint: &str,
             payer: &str,
@@ -455,7 +476,6 @@ mod bindings {
             decimals: u8,
         ) -> Result<JsValue, JsError> {
             out_many(self.inner.approve_and_open(
-                &key(token_program, "tokenProgram")?,
                 &key(payer_token_account, "payerTokenAccount")?,
                 &key(mint, "mint")?,
                 &key(payer, "payer")?,
@@ -468,7 +488,6 @@ mod bindings {
         #[wasm_bindgen(js_name = approveAndRenew)]
         pub fn approve_and_renew(
             &self,
-            token_program: &str,
             payer_token_account: &str,
             mint: &str,
             payer: &str,
@@ -477,7 +496,6 @@ mod bindings {
             decimals: u8,
         ) -> Result<JsValue, JsError> {
             out_many(self.inner.approve_and_renew(
-                &key(token_program, "tokenProgram")?,
                 &key(payer_token_account, "payerTokenAccount")?,
                 &key(mint, "mint")?,
                 &key(payer, "payer")?,
@@ -490,13 +508,11 @@ mod bindings {
         #[wasm_bindgen(js_name = closeAndRevoke)]
         pub fn close_and_revoke(
             &self,
-            token_program: &str,
             payer_token_account: &str,
             payer: &str,
             site: &str,
         ) -> Result<JsValue, JsError> {
             out_many(self.inner.close_and_revoke(
-                &key(token_program, "tokenProgram")?,
                 &key(payer_token_account, "payerTokenAccount")?,
                 &key(payer, "payer")?,
                 &key(site, "site")?,
@@ -531,7 +547,6 @@ mod bindings {
         #[wasm_bindgen(js_name = approveChecked)]
         pub fn approve_checked(
             &self,
-            token_program: &str,
             payer_token_account: &str,
             mint: &str,
             payer: &str,
@@ -540,13 +555,25 @@ mod bindings {
             decimals: u8,
         ) -> Result<JsValue, JsError> {
             out(self.inner.approve_checked(
-                &key(token_program, "tokenProgram")?,
                 &key(payer_token_account, "payerTokenAccount")?,
                 &key(mint, "mint")?,
                 &key(payer, "payer")?,
                 &key(site, "site")?,
                 amount,
                 decimals,
+            ))
+        }
+
+        /// Withdraw the authorization. Worth pairing with `closeContract`.
+        #[wasm_bindgen(js_name = revoke)]
+        pub fn revoke(
+            &self,
+            payer_token_account: &str,
+            payer: &str,
+        ) -> Result<JsValue, JsError> {
+            out(self.inner.revoke(
+                &key(payer_token_account, "payerTokenAccount")?,
+                &key(payer, "payer")?,
             ))
         }
 
@@ -576,7 +603,6 @@ mod bindings {
             payer_token_account: &str,
             treasury: &str,
             mint: &str,
-            token_program: &str,
             page_views: u32,
         ) -> Result<JsValue, JsError> {
             out(self.inner.meter_and_settle(
@@ -586,7 +612,6 @@ mod bindings {
                 &key(payer_token_account, "payerTokenAccount")?,
                 &key(treasury, "treasury")?,
                 &key(mint, "mint")?,
-                &key(token_program, "tokenProgram")?,
                 page_views,
             ))
         }

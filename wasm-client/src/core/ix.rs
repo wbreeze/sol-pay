@@ -3,10 +3,10 @@
 //! order of the matching `#[derive(Accounts)]` struct, which is what Anchor
 //! expects.
 //!
-//! Each builder exists twice: as a method on [`Program`], which stamps that
-//! deployment's address on the instruction, and as a free function against
-//! the canonical deployment. The free ones are the methods with
-//! [`Program::default`] filled in.
+//! Each builder exists twice: as a method on [`Program`], which supplies both
+//! the deployment's address and the site's token program, and as a free
+//! function against the canonical deployment on SPL Token. The free ones are
+//! the methods with [`Program::default`] filled in.
 
 use borsh::BorshSerialize;
 use solana_instruction::{AccountMeta, Instruction};
@@ -124,7 +124,6 @@ impl Program {
         payer_token_account: &Pubkey,
         treasury: &Pubkey,
         mint: &Pubkey,
-        token_program: &Pubkey,
         page_views: u32,
     ) -> Instruction {
         let (contract, _) = self.contract_address(site, payer);
@@ -138,7 +137,7 @@ impl Program {
                 AccountMeta::new(*payer_token_account, false),
                 AccountMeta::new(*treasury, false),
                 AccountMeta::new_readonly(*mint, false),
-                AccountMeta::new_readonly(*token_program, false),
+                AccountMeta::new_readonly(self.token_program(), false),
             ],
             data: data(
                 discriminator::METER_AND_SETTLE,
@@ -187,12 +186,11 @@ impl Program {
     /// payer's tokens. `approve` *replaces* any previous allowance, it does not
     /// add to it, so renewal passes the new limit outright.
     ///
-    /// An SPL Token instruction, but a deployment-dependent one: the delegate
-    /// it names is this deployment's contract PDA.
-    #[allow(clippy::too_many_arguments)]
+    /// An SPL Token instruction on both counts the handle carries: it goes to
+    /// this handle's token program, and the delegate it names is this
+    /// deployment's contract PDA.
     pub fn approve_checked(
         &self,
-        token_program: &Pubkey,
         payer_token_account: &Pubkey,
         mint: &Pubkey,
         payer: &Pubkey,
@@ -206,7 +204,7 @@ impl Program {
         buf.extend_from_slice(&amount.to_le_bytes());
         buf.push(decimals);
         Instruction {
-            program_id: *token_program,
+            program_id: self.token_program(),
             accounts: vec![
                 AccountMeta::new(*payer_token_account, false),
                 AccountMeta::new_readonly(*mint, false),
@@ -216,9 +214,27 @@ impl Program {
             data: buf,
         }
     }
+
+    /// Withdraw the authorization. Worth pairing with
+    /// [`Program::close_contract`].
+    ///
+    /// Names only the token account and its owner, so it says nothing about
+    /// which deployment held the allowance -- but it must go to the right
+    /// token program, and that is on the handle, so this is a method like the
+    /// rest.
+    pub fn revoke(&self, payer_token_account: &Pubkey, payer: &Pubkey) -> Instruction {
+        Instruction {
+            program_id: self.token_program(),
+            accounts: vec![
+                AccountMeta::new(*payer_token_account, false),
+                AccountMeta::new_readonly(*payer, true),
+            ],
+            data: vec![TAG_REVOKE],
+        }
+    }
 }
 
-// --- the canonical deployment --------------------------------------------
+// --- the canonical deployment, on SPL Token ------------------------------
 
 pub fn initialize_site(
     authority: &Pubkey,
@@ -259,7 +275,6 @@ pub fn meter_and_settle(
     payer_token_account: &Pubkey,
     treasury: &Pubkey,
     mint: &Pubkey,
-    token_program: &Pubkey,
     page_views: u32,
 ) -> Instruction {
     Program::default().meter_and_settle(
@@ -269,7 +284,6 @@ pub fn meter_and_settle(
         payer_token_account,
         treasury,
         mint,
-        token_program,
         page_views,
     )
 }
@@ -291,9 +305,7 @@ pub fn close_contract(site: &Pubkey, payer: &Pubkey) -> Instruction {
 /// The authorization step: let the contract PDA move up to `amount` of the
 /// payer's tokens. `approve` *replaces* any previous allowance, it does not
 /// add to it, so renewal passes the new limit outright.
-#[allow(clippy::too_many_arguments)]
 pub fn approve_checked(
-    token_program: &Pubkey,
     payer_token_account: &Pubkey,
     mint: &Pubkey,
     payer: &Pubkey,
@@ -301,41 +313,23 @@ pub fn approve_checked(
     amount: u64,
     decimals: u8,
 ) -> Instruction {
-    Program::default().approve_checked(
-        token_program,
-        payer_token_account,
-        mint,
-        payer,
-        site,
-        amount,
-        decimals,
-    )
+    Program::default().approve_checked(payer_token_account, mint, payer, site, amount, decimals)
 }
 
-// --- SPL Token instructions the flow needs -------------------------------
+/// Withdraw the authorization. Worth pairing with `close_contract`.
+pub fn revoke(payer_token_account: &Pubkey, payer: &Pubkey) -> Instruction {
+    Program::default().revoke(payer_token_account, payer)
+}
+
+// --- SPL Token wire tags --------------------------------------------------
 //
-// Built by hand rather than pulling in spl-token, which drags a large
-// dependency tree into a WASM bundle for two instructions. The tags are
-// stable parts of the SPL Token ABI.
+// `approve_checked` and `revoke` above are hand-encoded rather than pulled
+// from spl-token, which drags a large dependency tree into a WASM bundle for
+// two instructions. These tags are stable parts of the SPL Token ABI, and the
+// parity tests check the bytes against spl-token itself.
 
 const TAG_APPROVE_CHECKED: u8 = 13;
 const TAG_REVOKE: u8 = 5;
-
-/// Withdraw the authorization. Worth pairing with `close_contract`.
-///
-/// Free-standing rather than a [`Program`] method: revoking names only the
-/// token account and its owner, so it says nothing about which deployment
-/// held the allowance.
-pub fn revoke(token_program: &Pubkey, payer_token_account: &Pubkey, payer: &Pubkey) -> Instruction {
-    Instruction {
-        program_id: *token_program,
-        accounts: vec![
-            AccountMeta::new(*payer_token_account, false),
-            AccountMeta::new_readonly(*payer, true),
-        ],
-        data: vec![TAG_REVOKE],
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -366,8 +360,8 @@ mod tests {
 
     #[test]
     fn meter_data_is_discriminator_plus_le_u32() {
-        let k = PAY_ON_CHAIN_ID;
-        let ix = meter_and_settle(&k, &k, &k, &k, &k, &k, &TOKEN_PROGRAM_ID, 3);
+        let p = PAY_ON_CHAIN_ID;
+        let ix = meter_and_settle(&p, &p, &p, &p, &p, &p, 3);
         assert_eq!(&ix.data[..8], &discriminator::METER_AND_SETTLE);
         assert_eq!(&ix.data[8..], &3u32.to_le_bytes());
         assert_eq!(ix.accounts.len(), 8);
@@ -383,7 +377,7 @@ mod tests {
         for ix in [
             mine.initialize_site(&k(1), &k(2), &k(3), 10, 100, 50),
             mine.open_contract(&k(1), &k(2), &k(3), 500),
-            mine.meter_and_settle(&k(1), &k(2), &k(3), &k(4), &k(5), &k(6), &TOKEN_PROGRAM_ID, 3),
+            mine.meter_and_settle(&k(1), &k(2), &k(3), &k(4), &k(5), &k(6), 3),
             mine.renew_contract(&k(1), &k(2), &k(3), 900),
             mine.close_contract(&k(1), &k(2)),
         ] {
@@ -397,21 +391,55 @@ mod tests {
     #[test]
     fn an_approval_delegates_to_the_deployments_own_contract_pda() {
         let mine = Program::new(k(9));
-        let ix = mine.approve_checked(&TOKEN_PROGRAM_ID, &k(1), &k(2), &k(3), &k(4), 500, 6);
+        let ix = mine.approve_checked(&k(1), &k(2), &k(3), &k(4), 500, 6);
         assert_eq!(ix.program_id, TOKEN_PROGRAM_ID, "still an SPL instruction");
         assert_eq!(ix.accounts[2].pubkey, mine.contract_address(&k(4), &k(3)).0);
         assert_ne!(
             ix.accounts[2].pubkey,
-            approve_checked(&TOKEN_PROGRAM_ID, &k(1), &k(2), &k(3), &k(4), 500, 6).accounts[2]
-                .pubkey,
+            approve_checked(&k(1), &k(2), &k(3), &k(4), 500, 6).accounts[2].pubkey,
             "a different deployment delegates to a different PDA"
         );
     }
 
+    /// The three instructions that address a token program take it from the
+    /// handle, and nothing else on them moves when it changes.
     #[test]
-    fn the_free_functions_are_the_canonical_deployment() {
+    fn the_token_program_follows_the_handle() {
+        let spl = Program::default();
+        let t22 = spl.with_token_program(TOKEN_2022_PROGRAM_ID);
+
+        assert_eq!(
+            t22.approve_checked(&k(1), &k(2), &k(3), &k(4), 500, 6).program_id,
+            TOKEN_2022_PROGRAM_ID
+        );
+        assert_eq!(t22.revoke(&k(1), &k(3)).program_id, TOKEN_2022_PROGRAM_ID);
+
+        // On meter_and_settle it is an account, not the program being called:
+        // the metering program CPIs into it.
+        let m = t22.meter_and_settle(&k(1), &k(2), &k(3), &k(4), &k(5), &k(6), 3);
+        assert_eq!(m.program_id, PAY_ON_CHAIN_ID, "still our program");
+        assert_eq!(*m.accounts.last().map(|a| &a.pubkey).unwrap(), TOKEN_2022_PROGRAM_ID);
+
+        // Same deployment, same PDAs: only the token program moved.
+        assert_eq!(
+            t22.contract_address(&k(4), &k(3)),
+            spl.contract_address(&k(4), &k(3))
+        );
+        assert_eq!(
+            t22.approve_checked(&k(1), &k(2), &k(3), &k(4), 500, 6).data,
+            spl.approve_checked(&k(1), &k(2), &k(3), &k(4), 500, 6).data
+        );
+    }
+
+    #[test]
+    fn the_free_functions_are_the_canonical_deployment_on_spl_token() {
         let c = Program::default();
-        assert_eq!(open_contract(&k(1), &k(2), &k(3), 500), c.open_contract(&k(1), &k(2), &k(3), 500));
+        assert_eq!(
+            open_contract(&k(1), &k(2), &k(3), 500),
+            c.open_contract(&k(1), &k(2), &k(3), 500)
+        );
         assert_eq!(close_contract(&k(1), &k(2)), c.close_contract(&k(1), &k(2)));
+        assert_eq!(revoke(&k(1), &k(3)), c.revoke(&k(1), &k(3)));
+        assert_eq!(revoke(&k(1), &k(3)).program_id, TOKEN_PROGRAM_ID);
     }
 }

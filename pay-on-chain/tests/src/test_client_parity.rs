@@ -82,15 +82,21 @@ fn client_and_program_agree_on_the_program_id() {
     );
 }
 
-/// The deployment handle defaults to the program this workspace builds, and
-/// the free functions are that default. An integrator may override the id;
-/// what they get when they do not must still be this program.
+/// The deployment handle defaults to the program this workspace builds, on
+/// the token program the tests run against, and the free functions are that
+/// default. An integrator may override either; what they get when they do not
+/// must still be this program and SPL Token.
 #[test]
 fn the_default_deployment_is_this_program() {
     assert_eq!(
         Program::default().id().to_bytes(),
         pay_on_chain::ID.to_bytes(),
         "Program::default() has drifted from declare_id!"
+    );
+    assert_eq!(
+        Program::default().token_program().to_bytes(),
+        spl_token::ID.to_bytes(),
+        "Program::default() has drifted from SPL Token"
     );
     let authority = Pubkey::new_unique();
     assert_eq!(
@@ -213,7 +219,6 @@ fn meter_and_settle_matches() {
         &f.payer_ata,
         &f.treasury,
         &f.mint,
-        &spl_token::ID,
         7,
     );
     assert_same("meter_and_settle", &c, &anchor);
@@ -273,19 +278,11 @@ fn hand_rolled_spl_instructions_match_spl_token() {
         DECIMALS,
     )
     .unwrap();
-    let ours = client::approve_checked(
-        &spl_token::ID,
-        &f.payer_ata,
-        &f.mint,
-        &f.payer,
-        &f.site,
-        LIMIT,
-        DECIMALS,
-    );
+    let ours = client::approve_checked(&f.payer_ata, &f.mint, &f.payer, &f.site, LIMIT, DECIMALS);
     assert_same("approve_checked", &ours, &theirs);
 
     let theirs = spl_token::instruction::revoke(&spl_token::ID, &f.payer_ata, &f.payer, &[]).unwrap();
-    let ours = client::revoke(&spl_token::ID, &f.payer_ata, &f.payer);
+    let ours = client::revoke(&f.payer_ata, &f.payer);
     assert_same("revoke", &ours, &theirs);
 }
 

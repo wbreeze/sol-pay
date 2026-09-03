@@ -82,6 +82,21 @@ fixes it (a platform-tools minor bump, not a Solana CLI major version) —
 `agave-install init <version>` switches versions locally without losing the
 previous one, so this is safe to try before committing to it in CI.
 
+This was verified locally twice (a plain `anchor build` and a build against
+an isolated, freshly-installed Solana `$HOME`, both succeeding with
+`rustc 1.89`) but the *first* CI run with the pin still failed, on rustc
+1.84 again, after printing an unexplained `✨ 2.3.0 initialized` line that
+neither Anchor's nor `cargo-build-sbf`'s source has an obvious path to
+produce. The one confirmed anomaly in that run: `Swatinem/rust-cache@v2`
+restored a cache key from *before* the pin landed — stale `~/.cargo/bin`
+and `target/` from the broken toolchain — so the `program` job's
+`prefix-key` was bumped to force one clean cache, and a `Report SBF
+toolchain` step (`cargo build-sbf --version`) was added right after the
+install step so a recurrence is diagnosed from a two-line log instead of
+guessed at from inside `anchor build`'s much longer output. If it recurs
+after a clean cache, the mystery is real and not staleness — read that
+diagnostic step's output first.
+
 ## Architecture
 
 ### The chain model

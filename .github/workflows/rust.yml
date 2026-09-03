@@ -74,9 +74,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # prefix-key bumped once, deliberately: a run before the Solana
+      # tooling pin below cached ~/.cargo/bin and this job's target/ under
+      # the old key, and Swatinem/rust-cache restored that stale cache into
+      # a run that otherwise had the fix, producing a confusing, different
+      # failure than the one being fixed. This forces one clean cache;
+      # revert to the plain default once that's landed and confirmed.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: pay-on-chain
+          prefix-key: v1-rust
 
       # Pinned rather than "stable": stable currently resolves to a release
       # whose default platform-tools (v1.51) bundles rustc 1.84, which
@@ -91,6 +98,16 @@ jobs:
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/v3.1.14/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      # Diagnostic, not decoration: a prior run failed inside `anchor build`
+      # with rustc 1.84 despite this job installing v3.1.14 above, printing
+      # an unexplained "2.3.0 initialized" line first. Neither anchor's nor
+      # cargo-build-sbf's source (checked directly) has a code path that
+      # would produce that from anything in this repo, so if it recurs this
+      # step pins down what's actually active before `anchor build` obscures
+      # it inside a much longer log.
+      - name: Report SBF toolchain
+        run: cargo build-sbf --version
 
       - name: Install Anchor
         run: |

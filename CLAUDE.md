@@ -10,10 +10,10 @@ proof of concept, no front end:
 - `pay-on-chain/` — the Anchor program plus its LiteSVM test crate.
 - `wasm-client/` — `sol-pay-client`, instruction builders published both to
   crates.io (native Rust core) and to npm as a browser bundle.
-- `php-client/` — not published, not yet a client. `php-client/pda-spike`
-  proves a PHP server with no Rust toolchain and no WASM runtime can still
-  derive this program's PDAs and build its instructions correctly. Not wired
-  into `bin/`, CI, or the workspace — see below.
+- `php-client/` — `wbreeze/sol-pay-client`, a Composer package (packaged,
+  not published) covering the server-signed half of `wasm-client/src/core`
+  for PHP servers with no Rust toolchain and no WASM runtime. Not wired into
+  `bin/`, CI, or the Rust workspace — see below.
 
 `wasm-client/SPEC.md` is the API specification and the reasoning behind the
 public surface; `state-machine.plantuml` (rendered to `state-machine.png`) is
@@ -134,33 +134,82 @@ failure. CI greps `cargo tree -d` for it; `pay-on-chain/tests/Cargo.toml` and
 `wasm-client/Cargo.toml` carry comments explaining specific pins — read them
 before changing a dependency.
 
-### php-client / pda-spike
+### php-client
 
-`php-client/pda-spike/php/` is a from-scratch PHP port of the field
-arithmetic behind `find_program_address` and Anchor's instruction encoding —
-not a binding, since a typical PHP host has no FFI path into the Rust core.
-It exists because SPEC §2 treats PDA derivation and instruction encoding as
-chain facts the library should own so integrators never reimplement them, and
-a Rust-only crate structurally can't reach PHP-only servers.
+`php-client/src/Core/` (namespace `SolPay\Core`, PSR-4) covers the server row
+of `wasm-client/SPEC.md` §3's "Two consumers" table — everything a PHP site
+authority signs — and deliberately omits the payer-signed instructions
+(`open_contract`, `renew_contract`, `close_contract`, `approve_checked`,
+`revoke`): those are signed by a wallet adapter in the browser regardless of
+what the server runs, so a PHP port gains nothing by having them.
 
-Its drift control mirrors `pay-on-chain/tests`': `vectors-gen/` is a small
-Rust binary that pulls the published `sol-pay-client` crate from crates.io and
-prints PDAs and one built instruction as JSON; `php/verify.php` reproduces the
-same inputs and checks its own output byte-for-byte against that JSON. Rerun
-it after any change to `wasm-client/src/core/pda.rs` or `ix.rs`:
+| `wasm-client/src/core` | `php-client/src/Core` |
+| --- | --- |
+| `pda.rs` | `Pda` |
+| `ix.rs` (server-signed subset) | `Ix` |
+| `state.rs` | `Site`, `Contract`, `TokenAccount`, `Mint`, `Reader` (internal) |
+| `preflight.rs` | `Preflight`, `Blocked` |
+| `error.rs` | `PayError`, `TokenError`, `Cause`, `Shortfall` |
+| `units.rs` | `Units` |
+| `program.rs` | `Program` |
+| `ids.rs` | `Ids` |
+
+Every public pubkey is a base58 string, matching wasm-client's own JS
+boundary (`wasm-client/README.md`, "addresses cross its boundary as base58
+strings"). PHP has no unsigned 64-bit type, so this package's safe integer
+ceiling is `PHP_INT_MAX` (~9.2e18) rather than `u64::MAX` (~1.8e19) —
+`Reader::u64()`, `Preflight`, and `Units` each document this where it matters;
+ordinary token amounts never approach either ceiling. Where Rust splits an API
+into methods-on-a-handle plus free functions defaulting to the canonical
+deployment, PHP just takes a `Program` explicitly (see `Ix`/`Program`'s class
+docs) — same coverage, one implementation, since PHP doesn't have the
+call-site friction that split exists to avoid.
+
+`Curve25519.php`'s field arithmetic and the on-curve test were promoted into
+`Fe`/`Ed25519` here from `php-client/pda-spike/php/`, namespaced and pruned
+to what the live package needs (the spike's libsodium-comparison code stays
+behind, since it exists only to demonstrate the pitfall below). The spike's
+own copies stay frozen as the record of that dated experiment — don't "fix"
+one without checking whether the other needs it too.
+
+**Drift control differs by module.** `Pda` and `Ix` are checked byte-for-byte
+against the published `sol-pay-client` crate via `pda-spike`'s vectors:
 
 ```
 cd php-client/pda-spike/vectors-gen && cargo run --release > ../php/vectors.json
-cd ../php && php verify.php vectors.json
+cd ../php && php verify.php vectors.json   # spike's own check
+cd ../.. && composer test                  # php-client/tests/Core/PdaTest.php, IxTest.php assert the same vector
 ```
 
-`php-client/pda-spike/README.md` also carries a second finding worth knowing
-before touching this code: PHP's `sodium` extension exposes no ed25519 core
-API on any build tested so far, so the natural-looking shortcut
+`State`, `Preflight`, `Error`, and `Units` have no such cross-language vector
+yet — they're hand-ported from the Rust source and their PHPUnit tests mirror
+wasm-client's own `#[cfg(test)]` modules test-for-test, but nothing proves
+byte-for-byte agreement the way `Pda`/`Ix` do. Extending `vectors-gen` to
+emit a sample `Site`/`Contract` account and the `PayError`/`TokenError` code
+tables would close that gap; until then, treat those four modules as
+carefully transcribed rather than independently verified.
+
+`php-client/pda-spike/README.md` carries a finding worth knowing before
+touching `Ed25519`: PHP's `sodium` extension exposes no ed25519 core API on
+any build tested so far, so the natural-looking shortcut
 (`sodium_crypto_core_ed25519_is_valid_point`) doesn't exist and a stricter
 substitute would silently derive wrong addresses on roughly half of all
 inputs — which is why the on-curve test is hand-written rather than delegated
 to libsodium.
+
+**Running the suite:**
+
+```
+cd php-client && composer install && vendor/bin/phpunit --testdox
+```
+
+Composer isn't part of any other tool here, so installing it (`brew install
+composer`) pulls in unversioned PHP as a dependency and can unlink a
+version-pinned `php@X.Y` Homebrew formula from `php` on `PATH` — happened
+once already, changing the default `php` from 8.4.25 to 8.5.10. The pinned
+formula stays installed at its own prefix (e.g.
+`/opt/homebrew/opt/php@8.4/bin/php`) if a specific version ever needs to be
+reproduced.
 
 ## CI
 
@@ -171,8 +220,8 @@ to libsodium.
   upstream release that breaks the manifest ranges surfaces as a red scheduled
   run. It never changes a lock; the fix is `bin/update-locks` and a commit.
 
-Neither workflow touches `php-client/`. Its conformance check (above) is
-manual until it becomes more than a proof of concept.
+Neither workflow touches `php-client/`. Its tests (above) are run manually
+until it becomes more than a packaged-but-unpublished library.
 
 ## Conventions
 

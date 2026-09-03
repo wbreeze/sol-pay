@@ -1,0 +1,23 @@
+{
+    "name": "wbreeze/sol-pay-client",
+    "description": "Server-side PHP client for the pay-on-chain metering program: PDA derivation, instruction building, account decoding, preflight, and error mapping. Mirrors wasm-client's core surface for servers with no Rust toolchain and no WASM runtime.",
+    "type": "library",
+    "license": "(MIT or Apache-2.0)",
+    "homepage": "https://github.com/wbreeze/sol-pay",
+    "require": {
+        "php": "^8.1"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "SolPay\\Core\\": "src/Core/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "SolPay\\Tests\\": "tests/"
+        }
+    }
+}

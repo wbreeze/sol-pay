@@ -9,12 +9,17 @@ a reference code base or example. Do not expect it to work.
 
 ## What is here
 
-Two Rust crates and nothing else:
+Two Rust crates, and one PHP proof of concept:
 
 - `pay-on-chain` — the metering program, built with the
   [Anchor framework][anchor], and its LiteSVM test suite.
 - `wasm-client` — the client library a site integrates, published as a crate
   and as a browser bundle. See `wasm-client/SPEC.md`.
+- `php-client` — not published, not yet a client. `php-client/pda-spike`
+  proves that a PHP server with no Rust toolchain and no WASM runtime can
+  still derive this program's PDAs and build its instructions correctly,
+  checked byte-for-byte against `wasm-client`. See
+  `php-client/pda-spike/README.md`.
 
 There is no front end. A Next.js application and its AWS Amplify deployment
 configuration used to live here; both were removed once the client library

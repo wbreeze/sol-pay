@@ -1,0 +1,6 @@
+# pda-spike's vector generator (Rust, not published)
+pda-spike/vectors-gen/target
+**/*.rs.bk
+
+# generated conformance fixture, regenerated from vectors-gen
+pda-spike/php/vectors.json

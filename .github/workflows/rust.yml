@@ -91,27 +91,43 @@ jobs:
       # edition2024 feature -- a growing set as of 2026 (zeroize, blake3,
       # rand, indexmap, the toml crates, and more, none of which this repo
       # depends on directly). v3.1.14's default platform-tools (v1.52)
-      # bundles rustc 1.89, which does not have this problem. Move this
-      # forward deliberately, the same way bin/update-locks treats a lock
-      # bump: never silently, and re-run `anchor build` locally first.
+      # bundles rustc 1.89, which does not have this problem.
+      #
+      # The version itself lives in pay-on-chain/Anchor.toml, because AVM's
+      # `anchor` shim reads it there and will otherwise install a Solana of
+      # its own choosing over the top of whatever this step put down. Read it
+      # from that file rather than repeating it, so the two can never
+      # disagree; a run that finds no pin fails here rather than three steps
+      # later inside `anchor build`.
       - name: Install Solana tooling
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/v3.1.14/install)"
+          version="$(sed -n 's/^solana_version *= *"\(.*\)"/\1/p' pay-on-chain/Anchor.toml)"
+          [ -n "$version" ] || {
+            echo "no [toolchain] solana_version in pay-on-chain/Anchor.toml" >&2
+            exit 1
+          }
+          echo "Installing Solana $version"
+          sh -c "$(curl -sSfL "https://release.anza.xyz/v$version/install")"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
-      # Diagnostic, not decoration: a prior run failed inside `anchor build`
-      # with rustc 1.84 despite this job installing v3.1.14 above, printing
-      # an unexplained "2.3.0 initialized" line first. Neither anchor's nor
-      # cargo-build-sbf's source (checked directly) has a code path that
-      # would produce that from anything in this repo, so if it recurs this
-      # step pins down what's actually active before `anchor build` obscures
-      # it inside a much longer log.
+      # Diagnostic, not decoration: this is what caught the mystery. A run
+      # failed inside `anchor build` with rustc 1.84 despite this job
+      # installing v3.1.14, and this step is what proved the toolchain was
+      # right up to the moment anchor ran -- which is what pointed at AVM's
+      # shim as the thing changing it. Keep it: it is the cheapest way to
+      # tell "we installed the wrong toolchain" from "something replaced the
+      # right one".
       - name: Report SBF toolchain
         run: cargo build-sbf --version
 
+      # --tag, not the default branch: the unpinned spelling is how avm 1.1.2
+      # and its new Solana-resolving `anchor` shim arrived in the middle of an
+      # unrelated run and changed what `anchor build` does. The Anchor.toml
+      # pin above makes the shim harmless, but CI should not be tracking a
+      # moving tool either. Move this tag forward deliberately.
       - name: Install Anchor
         run: |
-          cargo install --git https://github.com/solana-foundation/anchor avm --locked --force
+          cargo install --git https://github.com/solana-foundation/anchor --tag v1.1.2 avm --locked --force
           avm install 0.32.1
           avm use 0.32.1
 

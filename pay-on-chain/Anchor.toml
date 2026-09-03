@@ -1,3 +1,23 @@
+# The `anchor` on PATH is AVM's shim, not anchor-cli. Current AVM (1.1.2 in
+# CI) resolves a Solana version on *every* invocation and makes it active
+# before it spawns the real binary. This key is the first thing it reads.
+# Leave it out and it falls back to a table compiled into avm, where anchor
+# 0.32.1 maps to Solana 2.3.0 -- so `anchor build` quietly ran
+# `agave-install init 2.3.0`, replacing whatever was installed with that
+# release's platform-tools and its rustc/cargo 1.84, and the build then died
+# on the first dependency whose manifest requires edition2024. That is the
+# "2.3.0 initialized" line that appeared out of nowhere in CI and defeated
+# the v3.1.14 pin in .github/workflows/rust.yml.
+#
+# Stating the version here makes one pin that both readers honour: AVM's shim
+# and anchor-cli's own toolchain override each compare it against the active
+# `solana --version`, find a match, and do nothing. Move it forward the same
+# way bin/update-locks treats a lock bump -- deliberately, with a local
+# `anchor build` first -- and keep it in step with the platform-tools version
+# the program is expected to compile under.
+[toolchain]
+solana_version = "3.1.14"
+
 [features]
 resolution = true
 skip-lint = false

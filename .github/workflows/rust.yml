@@ -78,9 +78,18 @@ jobs:
         with:
           workspaces: pay-on-chain
 
+      # Pinned rather than "stable": stable currently resolves to a release
+      # whose default platform-tools (v1.51) bundles rustc 1.84, which
+      # cannot parse any dependency's Cargo.toml that requires the
+      # edition2024 feature -- a growing set as of 2026 (zeroize, blake3,
+      # rand, indexmap, the toml crates, and more, none of which this repo
+      # depends on directly). v3.1.14's default platform-tools (v1.52)
+      # bundles rustc 1.89, which does not have this problem. Move this
+      # forward deliberately, the same way bin/update-locks treats a lock
+      # bump: never silently, and re-run `anchor build` locally first.
       - name: Install Solana tooling
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          sh -c "$(curl -sSfL https://release.anza.xyz/v3.1.14/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
       - name: Install Anchor

@@ -120,6 +120,33 @@ publish`. Same reasoning as `wasm-client/README.md`'s publishing section:
 rare, and worth a deliberate decision rather than a side effect of finishing
 the code.
 
+**Packagist versioning needs more than a tag when the day comes.** Unlike
+`cargo publish`/`npm publish`, which package whatever the manifest says at
+the moment you run them, Packagist derives a package's version *from a git
+tag* — and a tag in this repository is repo-wide, so it would apply to
+`pay-on-chain` and `wasm-client` too, meaning nothing to either of them.
+Prefixing the tag to scope it (`php-client-v0.1.0`) looks like the obvious
+fix and was tested directly against Composer's own VCS driver (the same code
+Packagist runs): it does not work. Composer's tag parser requires the tag to
+*be* the version string, with only an optional leading `v` — `v0.1.0` alone
+resolves to `0.1.0`; `php-client-v0.1.0` and `php-client/v0.1.0` are both
+invisible to it, not even parsed incorrectly, just never listed as a version
+at all. A second, independent problem showed up in the same test: Composer's
+VCS repository type requires `composer.json` at the repository root, and
+fails outright (`No valid composer.json was found in any branch or tag`)
+when it lives in a subdirectory the way this one does.
+
+Both problems have the same fix, and it's the standard one for this in the
+PHP ecosystem (Symfony's components, Laravel's `illuminate/*` packages): a
+**subtree split** — mirror the `php-client/` subtree into its own dedicated
+repository (`git subtree split -P php-client`, or a CI action like
+`symplify/monorepo-split-github-action`) and point Packagist at that repo
+instead of this one. The split repo gets `composer.json` at its root for
+free, and its own tag history that can never collide with the other two
+artifacts' versioning. Worth building only once publishing is actually
+decided — no point standing up that pipeline for a package nobody can
+`composer require` yet.
+
 ## Licence
 
 Dual licensed under either of Apache License, Version 2.0, or the MIT

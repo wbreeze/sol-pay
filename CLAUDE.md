@@ -65,6 +65,23 @@ so.
 
 Anchor 0.32.1, installed through `avm`.
 
+`anchor build` compiles the on-chain program with a *third* toolchain,
+separate from both `rust-toolchain.toml`'s 1.89.0 and whatever `rustup`
+considers default: the Solana CLI's bundled SBF platform-tools, whose own
+default rustc version is fixed by whichever Solana CLI release is
+installed, not by anything in this repo. `.github/workflows/rust.yml` pins
+that release explicitly (`release.anza.xyz/v3.1.14`, currently) rather than
+`stable`, because `stable` resolved to a release whose default
+platform-tools (v1.51) bundles rustc 1.84 -- too old to parse any
+dependency's `Cargo.toml` that requires the `edition2024` feature, a
+growing set as of 2026 (`zeroize`, `blake3`, `rand`, `indexmap`, the `toml`
+crates, and others this repo pulls in transitively without depending on
+directly). Bumping the pin forward when this recurs: check
+`cargo build-sbf --version` locally, and prefer the smallest release that
+fixes it (a platform-tools minor bump, not a Solana CLI major version) —
+`agave-install init <version>` switches versions locally without losing the
+previous one, so this is safe to try before committing to it in CI.
+
 ## Architecture
 
 ### The chain model

@@ -172,22 +172,41 @@ behind, since it exists only to demonstrate the pitfall below). The spike's
 own copies stay frozen as the record of that dated experiment — don't "fix"
 one without checking whether the other needs it too.
 
-**Drift control differs by module.** `Pda` and `Ix` are checked byte-for-byte
-against the published `sol-pay-client` crate via `pda-spike`'s vectors:
+**Drift control.** `pda-spike/vectors-gen` is the one place a PHP claim about
+the chain is checked against ground truth rather than transcribed by hand.
+It emits four things, each sourced from the real crate or program rather
+than copied:
+
+- PDA derivation and one `meter_and_settle` instruction, from the published
+  `sol-pay-client` crate (crates.io) — checked by `PdaTest`/`IxTest`.
+- One genuine Anchor-serialized `Site` and `Contract` account — built from
+  `pay-on-chain::state::{Site,Contract}` using their own `#[account]`-derived
+  `DISCRIMINATOR` and `AnchorSerialize`, a path dependency on
+  `pay-on-chain/programs/pay-on-chain` — checked by `StateTest`.
+- The `PayError` code table, computed as `PayError::<variant> as u32 +
+  anchor_lang::error::ERROR_CODE_OFFSET` against `pay-on-chain`'s own enum —
+  checked by `ErrorTest`.
+- The `TokenError` code table, read the same way from `spl_token::error::TokenError`
+  (already in the tree transitively via `anchor-spl`) — also checked by `ErrorTest`.
+
+`Preflight` and `Units` are pure arithmetic with no chain-serialized bytes to
+cross-check; their PHPUnit tests mirror wasm-client's own `#[cfg(test)]`
+modules test-for-test instead, which is the appropriate level of rigor for
+functions with no encoding to get wrong.
+
+Regenerate and re-check after touching `state.rs`, `errors.rs`, `pda.rs`, or
+`ix.rs`:
 
 ```
 cd php-client/pda-spike/vectors-gen && cargo run --release > ../php/vectors.json
-cd ../php && php verify.php vectors.json   # spike's own check
-cd ../.. && composer test                  # php-client/tests/Core/PdaTest.php, IxTest.php assert the same vector
+cd ../php && php verify.php vectors.json   # spike's own check: Pda/Ix only
+cd ../.. && composer test                  # PdaTest, IxTest, StateTest, ErrorTest assert the same vector
 ```
 
-`State`, `Preflight`, `Error`, and `Units` have no such cross-language vector
-yet — they're hand-ported from the Rust source and their PHPUnit tests mirror
-wasm-client's own `#[cfg(test)]` modules test-for-test, but nothing proves
-byte-for-byte agreement the way `Pda`/`Ix` do. Extending `vectors-gen` to
-emit a sample `Site`/`Contract` account and the `PayError`/`TokenError` code
-tables would close that gap; until then, treat those four modules as
-carefully transcribed rather than independently verified.
+The PHPUnit tests hardcode the vector's values as literals rather than
+reading `vectors.json` at runtime — same style `PdaTest`/`IxTest` already
+used — so a drift shows up as a specific failing assertion pointing at the
+stale literal, not a missing-fixture-file error.
 
 `php-client/pda-spike/README.md` carries a finding worth knowing before
 touching `Ed25519`: PHP's `sodium` extension exposes no ed25519 core API on

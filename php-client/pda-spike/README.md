@@ -111,7 +111,7 @@ instruction encoding matched.
 | `php/t2.php` | the comparison experiment above |
 | `php/bench.php` | timing |
 | `php/verify.php` | checks against Rust-generated vectors |
-| `vectors-gen/` | the Rust generator (needs crates.io) |
+| `vectors-gen/` | the Rust generator (needs crates.io; also depends on `pay-on-chain` and `spl-token` directly, for the account and error-code vectors `php-client/src/Core`'s tests check against — see CLAUDE.md's php-client section) |
 
 ## What this means for §12.1
 

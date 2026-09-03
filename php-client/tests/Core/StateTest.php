@@ -15,6 +15,54 @@ use SolPay\Core\TokenAccount;
 
 final class StateTest extends TestCase
 {
+    /**
+     * Genuine Anchor-serialized bytes -- pay_on_chain::state::Site's own
+     * #[account] DISCRIMINATOR plus AnchorSerialize, not hand-assembled --
+     * produced by php-client/pda-spike/vectors-gen and recorded in
+     * php-client/pda-spike/php/vectors.json's "site_account". Regenerate
+     * with `cargo run --release > ../php/vectors.json` from vectors-gen/
+     * after any change to pay-on-chain/programs/pay-on-chain/src/state.rs
+     * and update this constant if it changes.
+     */
+    public function testSiteDecodesARealAnchorSerializedAccount(): void
+    {
+        $bytes = hex2bin(
+            '8fff340f41a55e312c8e0047d7d6624eb2213f5d1191d37301836d6731bafa4fbe8743110bbe852aa9ab'
+            .'f5f0e8b46c57452bdf96cc079830ab249020269c0c77435cc936691394a87f119555a5f2e9ab30519f511'
+            .'3c79edef32f6c0d03f8cf1ded3cfad6b74333e8102700000000000090d003000000000020a10700000000'
+            .'00fe',
+        );
+
+        $s = Site::decode($bytes);
+
+        self::assertSame('3zvXTk3LUvcsusVi7pMtovKCxGtxGCjeEmGso3x91M5K', $s->authority);
+        self::assertSame('CRKz4eYnALe6h4LDZwm5ZiD7cAchCb5NHQTUm9cNSaDu', $s->mint);
+        self::assertSame('9Z2L3mYsKKyoH8d7o9STDSVLhvTgXsDoSfLnWSWFrksZ', $s->treasury);
+        self::assertSame(10_000, $s->pagePrice);
+        self::assertSame(250_000, $s->collectionThreshold);
+        self::assertSame(500_000, $s->minLimit);
+        self::assertSame(254, $s->bump);
+    }
+
+    /** Same discipline as {@see testSiteDecodesARealAnchorSerializedAccount}, for Contract. */
+    public function testContractDecodesARealAnchorSerializedAccount(): void
+    {
+        $bytes = hex2bin(
+            'ac8a73f27943b71af2d6713221830bf6ab79743159da843f4ea258b322eabfa5ecf92d2c8a6601f05e25'
+            .'d28c5bb4ab2ef2d79b02c49f3b45ded37d11b834103065630924b770a07640420f000000000090d00300'
+            .'00000000a086010000000000fd',
+        );
+
+        $c = Contract::decode($bytes);
+
+        self::assertSame('HLwKN3khwF5WdLfbN2XsbQz8tYET3iH1eQ3HbRagG2BZ', $c->site);
+        self::assertSame('7LWmtbqp9ZAiHDs2R5GVikZVRr5Zi41iqzMHodThMPa5', $c->payer);
+        self::assertSame(1_000_000, $c->limit);
+        self::assertSame(250_000, $c->used);
+        self::assertSame(100_000, $c->paid);
+        self::assertSame(253, $c->bump);
+    }
+
     private static function siteBytes(): string
     {
         return "\x8f\xff\x34\x0f\x41\xa5\x5e\x31"

@@ -17,6 +17,52 @@ use SolPay\Core\TokenError;
 
 final class ErrorTest extends TestCase
 {
+    /**
+     * Every PayError code, read by php-client/pda-spike/vectors-gen as
+     * `PayError::<variant> as u32 + anchor_lang::error::ERROR_CODE_OFFSET`
+     * against pay-on-chain's own enum -- not copied by hand -- and recorded
+     * in php-client/pda-spike/php/vectors.json's "pay_errors". Regenerate
+     * after any change to errors.rs and update this table if it changes.
+     */
+    public function testPayErrorCodesMatchTheProgramsOwnEnum(): void
+    {
+        $fromVectorsGen = [
+            PayError::LimitBelowMinimum->name => 6000,
+            PayError::MinimumBelowThreshold->name => 6001,
+            PayError::ZeroPagePrice->name => 6002,
+            PayError::LimitReached->name => 6003,
+            PayError::DelegateNotSet->name => 6004,
+            PayError::DelegateMismatch->name => 6005,
+            PayError::DelegateAllowanceTooLow->name => 6006,
+            PayError::LimitBelowUsage->name => 6007,
+            PayError::MathOverflow->name => 6008,
+        ];
+        foreach (PayError::cases() as $case) {
+            self::assertSame($fromVectorsGen[$case->name], $case->code(), $case->name);
+        }
+        self::assertCount(count(PayError::cases()), $fromVectorsGen, 'every variant is covered, neither side has an extra');
+    }
+
+    /**
+     * Every TokenError code this package names, read by vectors-gen from
+     * spl-token's own enum (`TokenError::<variant> as u32`) rather than
+     * copied by hand, and recorded in vectors.json's "token_errors".
+     */
+    public function testTokenErrorCodesMatchTheSplTokenEnum(): void
+    {
+        $fromVectorsGen = [
+            TokenError::InsufficientFunds->name => 1,
+            TokenError::MintMismatch->name => 3,
+            TokenError::OwnerMismatch->name => 4,
+            TokenError::AccountFrozen->name => 17,
+            TokenError::MintDecimalsMismatch->name => 18,
+        ];
+        foreach (TokenError::cases() as $case) {
+            self::assertSame($fromVectorsGen[$case->name], $case->code(), $case->name);
+        }
+        self::assertCount(count(TokenError::cases()), $fromVectorsGen, 'every variant is covered, neither side has an extra');
+    }
+
     public function testPayErrorCodesRoundTrip(): void
     {
         foreach ([PayError::LimitBelowMinimum, PayError::LimitReached, PayError::DelegateAllowanceTooLow, PayError::MathOverflow] as $e) {

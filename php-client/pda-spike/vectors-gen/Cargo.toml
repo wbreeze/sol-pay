@@ -7,3 +7,14 @@ edition = "2021"
 sol-pay-client = "0.1.1"
 solana-pubkey = "2.4"
 sha2 = "0.10"
+# Path, not crates.io: unpublished, and this is the one place a genuine
+# Anchor-serialized Site/Contract account is easy to produce without a
+# validator -- #[account] gives Discriminator::DISCRIMINATOR and
+# AnchorSerialize for free. Same anchor-lang generation pay-on-chain/tests
+# already combines with solana-pubkey 2.x; no-entrypoint mirrors that crate's
+# own use of pay-on-chain as a library.
+pay-on-chain = { path = "../../../pay-on-chain/programs/pay-on-chain", features = ["no-entrypoint"] }
+anchor-lang = "0.32.1"
+# So the TokenError code table comes from the real enum's declaration order,
+# not a hand-copied number. Already in the tree transitively via anchor-spl.
+spl-token = "8"

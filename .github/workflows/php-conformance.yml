@@ -88,11 +88,21 @@ jobs:
           php-version: ${{ matrix.php }}
           tools: composer
 
-      # composer.lock is committed, so this resolves to the versions the
-      # package was tested against rather than to whatever is newest.
+      # --no-dev, and it is load-bearing. The library has no runtime
+      # dependencies at all, so this installs an autoloader and nothing else.
+      # The dev tooling is another matter: PHPUnit 11 pulls a `sebastian/*`
+      # tree requiring php >=8.2, which cannot even be resolved on the 8.1
+      # floor composer.json declares. That floor is a promise to consumers,
+      # and consumers do not install dev dependencies -- so --no-dev is what
+      # actually tests the promise. The first run of this job, 2026-09-04,
+      # failed here on 8.1 with 21 platform conflicts, every one of them a dev
+      # dependency and none of them the library's.
+      #
+      # composer.lock is committed, so what does get installed is what the
+      # package was tested against rather than whatever is newest.
       - name: composer install
         working-directory: php-client
-        run: composer install --no-interaction --no-progress
+        run: composer install --no-dev --no-interaction --no-progress
 
       - name: Conformance
         run: php php-client/conformance/vectors.php vectors.json

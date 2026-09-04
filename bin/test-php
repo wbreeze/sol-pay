@@ -28,6 +28,10 @@ if [ ! -f "$ROOT/php-client/vendor/autoload.php" ]; then
     echo "for what that does to a version-pinned php on PATH." >&2
     exit 1
   }
+  # Full install here, dev dependencies included, because a person running
+  # this on a dev machine wants `composer test` to work straight after. CI
+  # installs with --no-dev instead: the library needs no runtime dependencies,
+  # and PHPUnit's tree cannot resolve on the PHP floor composer.json declares.
   echo "==> composer install"
   ( cd "$ROOT/php-client" && composer install --no-interaction )
 fi

@@ -270,9 +270,25 @@ reproduced.
   committed locks and without a build cache: re-resolves from scratch so an
   upstream release that breaks the manifest ranges surfaces as a red scheduled
   run. It never changes a lock; the fix is `bin/update-locks` and a commit.
+- `.github/workflows/node-conformance.yml` — loads the browser bundle under
+  Node and checks it against generated vectors. Guards the *loading contract*
+  (`init()` taking bytes, since Node's fetch refuses `file:` URLs), not drift:
+  Node runs the same wasm binary the browser does. `bin/test-node` by hand.
+  See `wasm-client/SPEC.md` §3.1.
+- `.github/workflows/php-conformance.yml` — runs the same vectors against
+  `php-client/src/Core` on the floor `composer.json` declares and on the
+  current PHP. This one *is* drift control: a second implementation can
+  disagree with the crate. `bin/test-php` by hand. See SPEC §8.1.
 
-Neither workflow touches `php-client/`. Its tests (above) are run manually
-until it becomes more than a packaged-but-unpublished library.
+The two conformance workflows generate vectors from the **published** crate
+rather than from this tree, which is why both also watch `pay-on-chain/programs/`
+-- the generator depends on it by path for genuinely Anchor-serialized account
+bytes and the real error discriminants.
+
+`php-client`'s PHPUnit suite (above) is still run by hand. It answers a
+different question from the conformance job: its expected values are
+hardcoded, so it names a local regression precisely and cannot notice the
+crate moving.
 
 ## Conventions
 

@@ -19,12 +19,14 @@ on:
     paths:
       - 'wasm-client/**'
       - 'php-client/pda-spike/vectors-gen/**'
+      - 'pay-on-chain/programs/**'
       - 'bin/**'
       - '.github/workflows/node-conformance.yml'
   pull_request:
     paths:
       - 'wasm-client/**'
       - 'php-client/pda-spike/vectors-gen/**'
+      - 'pay-on-chain/programs/**'
       - 'bin/**'
       - '.github/workflows/node-conformance.yml'
   workflow_dispatch:

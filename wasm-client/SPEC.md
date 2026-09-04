@@ -349,8 +349,8 @@ those ranges become the real compatibility contract on the day this ships.
 **A third, later, and not yet published.** `php-client` (2026-09-03) packages
 the server row of §3 for PHP, as `wbreeze/sol-pay-client` on Composer. It is
 not on Packagist and nothing depends on it yet. It is nonetheless meant to
-become a real artifact rather than to stay a demonstration, which is what makes
-§8.1 work owed now rather than advice for later.
+become a real artifact rather than to stay a demonstration, which is why §8.1's
+conformance job exists rather than being advice for later.
 
 ## 6. API surface
 
@@ -721,9 +721,16 @@ validation offers the strict predicate, because strictness is what signature
 verification wants; Solana wants only decompressibility. Any future port meets
 the same trap, and it will look like the right function.
 
-`php-client/pda-spike/vectors-gen` already generates the vectors, from the
-*published* crate rather than from local source, and already covers both
-layers -- 800 PDAs and one fully-built `meter_and_settle` with its account list
-and flags. No CI job runs it. That job is the precondition for anything
-depending on the PHP package: a divergence found after publication is found by
-an integrator.
+`php-client/pda-spike/vectors-gen` generates the vectors from the *published*
+crate rather than from local source, and covers both layers -- 800 PDAs and one
+fully-built `meter_and_settle` with its account list and flags. The
+`php conformance` workflow runs them against `php-client/src/Core` on every
+change to the port or to the program, on the floor `composer.json` declares as
+well as on the version it is developed against; `bin/test-php` is the same
+check by hand.
+
+That job is deliberately not `composer test`. The PHPUnit suite hardcodes its
+expected values as literals, which is the right shape for naming a local
+regression and useless against the crate moving underneath it -- frozen
+literals agree with themselves. The two run for different reasons and neither
+replaces the other.

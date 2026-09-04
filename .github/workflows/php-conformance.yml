@@ -1,0 +1,98 @@
+# The PHP port against the published crate.
+#
+# SPEC.md §8.1: `php-client/src/Core` is a second implementation of the same
+# encoding in another language, and a divergent port does not fail cleanly --
+# it produces a plausible transaction that does the wrong thing, and then
+# someone signs it. This is the job that catches that.
+#
+# It is deliberately not `composer test`. The PHPUnit suite hardcodes its
+# expected values as literals, so a local regression names the assertion that
+# broke; frozen literals cannot notice the crate moving underneath them. The
+# vectors here are regenerated from the published crate on every run, which is
+# the only way the two can be seen to disagree.
+#
+# Sibling to node-conformance.yml, and answering a different question. Node
+# loads the same wasm binary the browser loads and cannot diverge from the
+# crate; that job guards a loading contract. This one guards an agreement
+# between implementations, which is a real thing to lose.
+name: php conformance
+
+on:
+  push:
+    branches: [master, client]
+    paths:
+      - 'php-client/**'
+      - 'pay-on-chain/programs/**'
+      - 'bin/**'
+      - '.github/workflows/php-conformance.yml'
+  pull_request:
+    paths:
+      - 'php-client/**'
+      - 'pay-on-chain/programs/**'
+      - 'bin/**'
+      - '.github/workflows/php-conformance.yml'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Generated once. The matrix below only reads the file, and generating it per
+  # PHP version would be the same JSON each time.
+  vectors:
+    name: vectors
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: php-client/pda-spike/vectors-gen
+
+      # `sol-pay-client` comes from crates.io here, not from ../wasm-client:
+      # the vectors are supposed to be an outside opinion about what the right
+      # answers are. It also depends on pay-on-chain by path, for genuinely
+      # Anchor-serialized Site and Contract bytes and the real error
+      # discriminants -- which is why this workflow watches that directory.
+      - name: Generate vectors
+        working-directory: php-client/pda-spike/vectors-gen
+        run: cargo run --release --locked > "$GITHUB_WORKSPACE/vectors.json"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: php-conformance-vectors
+          path: vectors.json
+          retention-days: 7
+
+  php:
+    name: php ${{ matrix.php }}
+    needs: vectors
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor composer.json declares, and the version the package is
+        # developed on. Testing the floor is the point of naming one: `^8.1`
+        # is a promise to anyone running an older stack, and until this ran it
+        # was a promise nothing checked.
+        php: ['8.1', '8.5']
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: php-conformance-vectors
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          tools: composer
+
+      # composer.lock is committed, so this resolves to the versions the
+      # package was tested against rather than to whatever is newest.
+      - name: composer install
+        working-directory: php-client
+        run: composer install --no-interaction --no-progress
+
+      - name: Conformance
+        run: php php-client/conformance/vectors.php vectors.json

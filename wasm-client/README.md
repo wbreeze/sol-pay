@@ -74,6 +74,48 @@ actually offers is the `PayOnChain` class and the free functions documented
 above, and addresses cross its boundary as base58 strings, never as a `Pubkey`
 object.
 
+## Using the bundle from a Node server
+
+`SPEC.md` §3 splits an integration into a browser and a server, and the server
+row does not have to be Rust. The same npm package the browser takes runs on a
+Node server -- nothing in the wasm layer is browser-specific, so there is no
+second build target and no second package to install.
+
+One difference, and it is the whole of it: `init()` with no argument resolves
+`sol_pay_client_bg.wasm` against `import.meta.url` and fetches it, and Node's
+fetch does not do `file:` URLs. Hand it the bytes instead.
+
+```js
+import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import init, { PayOnChain } from 'sol-pay-client';
+
+const require = createRequire(import.meta.url);
+const wasmPath = require.resolve('sol-pay-client/sol_pay_client_bg.wasm');
+await init({ module_or_path: await readFile(wasmPath) });
+
+const pay = new PayOnChain();
+const ix = pay.meterAndSettle(
+  site, authority, payer, payerAta, treasury, mint, views);
+```
+
+Do that once at startup rather than per request. `init` returns early if the
+module is already there, but the file read does not.
+
+The object form matters: passing the bytes positionally still works and warns
+that it is deprecated.
+
+What a server actually reaches for is `meterAndSettle` and `initializeSite`,
+the decoders, preflight, and `cause`. The payer-signed builders ship in the
+same bundle and are not yours to call -- those are signed in a browser by a
+wallet adapter, whatever the server runs.
+
+`bin/test-node` is the check that keeps this section honest, and the
+`node conformance` workflow runs it on the LTS Node lines. It is not drift
+control: Node runs the same wasm binary the browser runs, so it cannot
+disagree with the crate. What it guards is the bytes-init contract above,
+which belongs to `wasm-pack`'s generated glue rather than to anything here.
+
 ## Which deployment, and which token program
 
 Two things every builder needs, neither of which changes between calls: the

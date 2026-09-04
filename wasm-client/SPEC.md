@@ -110,18 +110,36 @@ deliberately, since those are signed in a browser regardless of what the server
 runs. A port is the most expensive of the available answers, and §8.1 says what
 it costs to keep one honest.
 
-Two remedies are **undecided**, named here so that not having chosen is
-visible rather than silent:
+**The Node tier is already served, by the artifact that exists.** Measured
+2026-09-04; it needed no build target and no second package. Nothing in the
+wasm layer is browser-specific -- it pulls in `wasm-bindgen` and
+`serde-wasm-bindgen` and converts values, with no `web-sys`, no `js-sys` and
+no fetch -- so the `--target web` bundle runs unchanged under Node. There is
+exactly one difference: the zero-argument `init()` resolves the `.wasm`
+against `import.meta.url` and fetches it, and Node's fetch does not do `file:`
+URLs, so a Node caller passes the bytes instead. Against the same vectors
+`php-client` is checked with, the bundle under Node matched the published
+crate on 400 `site` PDAs, 400 `contract` PDAs, the `meter_and_settle` data and
+account order, and `decodeSite`. `README.md` carries the recipe.
 
-- **The Node tier.** A `wasm-pack --target nodejs` or `bundler` build would
-  reach it from this same source tree: no new API surface, no second
-  implementation, no new source of drift. It is by a wide margin the cheapest
-  remaining option, and nothing has been decided about it.
-- **Everything else.** A sidecar with a documented HTTP interface would reach
-  any language at all, at the cost of a deployment unit for people who wanted
-  a package. What it exposes is a signing oracle, so its trust boundary --
-  Unix socket and file permissions, or mTLS -- would be part of this library
-  rather than something each integrator invents. Also undecided.
+That is a claim about `wasm-pack`'s generated glue and not about anything in
+this repository, which is why it is tested rather than asserted: `bin/test-node`
+and the `node conformance` workflow. It is not §8.1's kind of exposure. Node
+runs the same wasm binary the browser runs and cannot diverge from it; what
+could break is the loading contract, silently, in a release of a tool.
+
+One remedy is **undecided**, named here so that not having chosen is visible
+rather than silent. A **sidecar** with a documented HTTP interface would reach
+any language at all, at the cost of a deployment unit for people who wanted a
+package. What it exposes is a signing oracle, so its trust boundary -- a Unix
+socket and file permissions, or mTLS -- would be part of this library rather
+than something each integrator invents.
+
+What is left unserved by a Rust crate, a Node-loadable bundle and a PHP port
+is Ruby, Java, Scala, ASP.NET and Python: together roughly a fifth of the
+sites W3Techs can identify, and, unlike PHP, fragmented -- no single CMS mass
+the size of WordPress to aim a port at. That shape is the argument for one
+sidecar over four more ports, and it is the whole of the case either way.
 
 ## 4. What the integrator owns
 
@@ -303,7 +321,9 @@ Decided 2026-08-31, packaged 2026-09-01.
 for a site's Rust server.
 
 **An npm package** — the `wasm-pack --target web` output: the `.wasm`, the JS
-glue, and the generated `.d.ts`.
+glue, and the generated `.d.ts`. It serves both rows of §3, not just the
+browser: a Node server loads the same bundle by handing `init()` the bytes.
+See §3.1.
 
 One source tree, one version number. `wasm-pack` derives `pkg/package.json`
 from the `[package]` table in `Cargo.toml`, so name, version, description,

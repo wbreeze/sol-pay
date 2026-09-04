@@ -1,0 +1,101 @@
+# The browser bundle, loaded from Node.
+#
+# SPEC.md §3.1 says a site's server does not have to be Rust, and that the
+# published npm package already serves the Node tier -- no second build
+# target, no second package. That claim rests on one property of wasm-pack's
+# generated glue: `--target web` output initialises from bytes as well as from
+# a fetched URL. Nothing in this repository controls that, so this job is what
+# keeps the claim from going stale under us.
+#
+# Deliberately separate from rust.yml, and separate from cross-implementation
+# drift. Node runs the same wasm binary the browser runs; it cannot disagree
+# with the crate the way a re-implementation can. The PHP port is what can,
+# and that is SPEC.md §8.1's job, not this one.
+name: node conformance
+
+on:
+  push:
+    branches: [master, client]
+    paths:
+      - 'wasm-client/**'
+      - 'php-client/pda-spike/vectors-gen/**'
+      - 'bin/**'
+      - '.github/workflows/node-conformance.yml'
+  pull_request:
+    paths:
+      - 'wasm-client/**'
+      - 'php-client/pda-spike/vectors-gen/**'
+      - 'bin/**'
+      - '.github/workflows/node-conformance.yml'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Built once. The matrix below only loads it, so a per-version rebuild would
+  # be the same bytes over again.
+  bundle:
+    name: bundle and vectors
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # In wasm-client, so rustup reads its rust-toolchain.toml rather than
+      # the runner's default -- the same reason bin/build-rust does it there.
+      - name: Add wasm target
+        working-directory: wasm-client
+        run: rustup target add wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            wasm-client
+            php-client/pda-spike/vectors-gen
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+
+      - name: Build browser bundle
+        run: ./bin/build-rust --client
+
+      # From the published crate, not from this tree. The vectors are an
+      # outside opinion about what the right answers are; generating them from
+      # local source would only prove the bundle agrees with itself.
+      - name: Generate vectors
+        working-directory: php-client/pda-spike/vectors-gen
+        run: cargo run --release --locked > "$GITHUB_WORKSPACE/vectors.json"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: node-conformance-inputs
+          path: |
+            wasm-client/pkg/
+            vectors.json
+          retention-days: 7
+
+  node:
+    name: node ${{ matrix.node }}
+    needs: bundle
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The LTS lines in support. The recipe needs `initSync` plus
+        # TextEncoder and TextDecoder as globals, which is a low bar that
+        # older lines almost certainly clear -- but an untested floor is not a
+        # claim worth making, and the README does not make one.
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-conformance-inputs
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Conformance
+        run: node wasm-client/conformance/node.mjs wasm-client/pkg vectors.json

@@ -14,7 +14,7 @@ categories = ["cryptography::cryptocurrencies", "wasm", "api-bindings"]
 rust-version = "1.89"
 # Build output. Cargo already skips gitignored paths when packaging from a
 # git checkout; this makes it true regardless of how the package is built.
-exclude = ["pkg/", "target/", "SPEC.pdf"]
+exclude = ["pkg/", "target/", "SPEC.pdf", "conformance/"]
 
 # docs.rs builds with default features, which now means the browser surface
 # would be absent from the rendered documentation. Ask for it, on the target

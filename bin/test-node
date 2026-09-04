@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+#
+# Check that the browser bundle still works from a Node server.
+#
+#   bin/test-node
+#
+# What this proves, and what it does not: Node runs the same wasm binary the
+# browser runs, so this cannot catch the crate and the bundle disagreeing --
+# they are the same build. It catches the *loading contract* changing. A
+# `wasm-pack --target web` bundle is not a Node package; it works there only
+# because its generated `init()` accepts bytes instead of fetching a URL, and
+# that is wasm-pack's property, not ours. See wasm-client/SPEC.md §3.1.
+#
+# Cross-implementation drift -- the PHP port against the crate -- is a
+# different job; see SPEC.md §8.1.
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PKG="$ROOT/wasm-client/pkg"
+VECTORS="$ROOT/php-client/pda-spike/php/vectors.json"
+
+command -v node >/dev/null 2>&1 || { echo "error: node not found." >&2; exit 1; }
+
+if [ ! -f "$PKG/sol_pay_client_bg.wasm" ]; then
+  echo "==> $PKG missing; building the browser bundle first"
+  "$ROOT/bin/build-rust" --client
+fi
+
+# Generated, gitignored, and derived from the *published* crate rather than
+# from this tree -- which is the point: the vectors are an outside opinion
+# about what the right answers are.
+if [ ! -f "$VECTORS" ]; then
+  echo "==> generating conformance vectors"
+  ( cd "$ROOT/php-client/pda-spike/vectors-gen" && cargo run --release --locked ) > "$VECTORS"
+fi
+
+echo "==> node conformance"
+node "$ROOT/wasm-client/conformance/node.mjs" "$PKG" "$VECTORS"
+
+echo "done."

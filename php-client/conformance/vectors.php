@@ -29,13 +29,17 @@ declare(strict_types=1);
 
 require __DIR__.'/../vendor/autoload.php';
 
+use SolPay\Core\AccountMeta;
 use SolPay\Core\Contract;
+use SolPay\Core\Instruction;
 use SolPay\Core\Ix;
 use SolPay\Core\PayError;
 use SolPay\Core\Pda;
 use SolPay\Core\Program;
 use SolPay\Core\Site;
 use SolPay\Core\TokenError;
+use SolPay\Core\Tx;
+use SolPay\Core\TxException;
 
 $path = $argv[1] ?? __DIR__.'/../vectors-gen/vectors.json';
 if (!is_file($path)) {
@@ -54,6 +58,43 @@ function check(string $label, bool $ok, string $detail = ''): void
     if (!$ok) {
         $failed[] = $label;
     }
+}
+
+/**
+ * Where two messages first disagree, in words. A hex diff of 348 bytes says
+ * nothing; "byte 4, in account key 0" says the ordering broke and "byte 0, in
+ * the header counts" says the partition did. Offsets come from the vector's
+ * own key count, so this is reading, not compiling.
+ */
+function whereMessagesDiffer(string $got, string $want, int $keyCount): string
+{
+    if ($got === $want) {
+        return intdiv(strlen($got), 2).' bytes';
+    }
+
+    $g = (string) hex2bin($got);
+    $w = (string) hex2bin($want);
+    $n = 0;
+    $shared = min(strlen($g), strlen($w));
+    while ($n < $shared && $g[$n] === $w[$n]) {
+        ++$n;
+    }
+    if ($n === $shared) {
+        return sprintf('same for %d bytes, then length differs: %d vs %d', $n, strlen($g), strlen($w));
+    }
+
+    $keysAt = 4;
+    $hashAt = $keysAt + 32 * $keyCount;
+    $where = match (true) {
+        $n < 3 => 'the header counts',
+        $n === 3 => 'the account-key count',
+        $n < $hashAt => 'account key '.intdiv($n - $keysAt, 32),
+        $n < $hashAt + 32 => 'the recent blockhash',
+        $n === $hashAt + 32 => 'the instruction count',
+        default => 'the compiled instructions',
+    };
+
+    return sprintf('byte %d, in %s: %02x not %02x', $n, $where, ord($g[$n]), ord($w[$n]));
 }
 
 // Same inputs the generator used: sha256("authority-<i>") / sha256("payer-<i>"),
@@ -114,180 +155,59 @@ check(
 
 // The compiled legacy transaction messages, and the wire bytes around them.
 //
-// `SolPay\Tx` does not exist yet, and that is the point: these vectors were
-// generated first so the encoder has something to be written against rather
-// than hand-verified after the fact. Until it exists there is nothing here to
-// compare *against*, so what follows checks that each vector is the thing the
-// encoder will need -- present, internally consistent, and agreeing with the
-// instructions that went into it, which a different crate produced.
+// This is a byte-for-byte comparison against `solana-message` and
+// `solana-transaction`, which is what the vectors were generated for. They
+// were generated *before* `SolPay\Tx` was written, on purpose: writing the
+// compiler first means hand-verifying wire bytes, which is the trap the
+// libsodium PDA shortcut was -- plausible output, no error.
 //
-// It reads each message at fixed offsets and reads the partition the header
-// counts imply. It orders nothing and derives no count. **It must not grow
-// into a second implementation of what `Tx::compile` will do** -- when `Tx`
-// lands, a byte-for-byte comparison replaces these shape checks rather than
-// joining them.
+// Three cases, reaching branches one case cannot: an empty readonly-signer
+// partition, cross-instruction flag merging, and the fee payer prepended
+// rather than sorted. `php-client/README.md`, "The order this has to happen
+// in", says which is which.
+//
+// A mismatch on 348 bytes says only "differs", so `whereMessagesDiffer` names
+// the section the first differing byte falls in. That is a diagnostic, not a
+// check: it reads at fixed offsets and decides nothing.
 $cases = $v['transactions'] ?? null;
 check('transaction vectors present', is_array($cases) && $cases !== [],
     is_array($cases) ? count($cases).' cases' : 'absent');
 
 foreach ($cases ?? [] as $tx) {
     $name = $tx['name'];
-    $keys = $tx['account_keys'];
-    $hdr = $tx['header'];
-    $msg = (string) hex2bin($tx['message_hex']);
-    $src = $tx['source_instructions'];
 
-    // What compilation had to work out, worked out from the same inputs it
-    // got: each key's flags OR'd across every instruction, the invoked
-    // program ids joining as readonly non-signers unless an instruction
-    // already named them, and the fee payer forced to a writable signer
-    // whatever the instructions said. Reproducing this map is not compiling a
-    // message -- there is no ordering and no encoding in it.
-    $merged = [];
-    foreach ($src as $i) {
-        foreach ($i['accounts'] as $a) {
-            $was = $merged[$a['pubkey']] ?? ['is_signer' => false, 'is_writable' => false];
-            $merged[$a['pubkey']] = [
-                'is_signer' => $was['is_signer'] || $a['is_signer'],
-                'is_writable' => $was['is_writable'] || $a['is_writable'],
-            ];
+    // Rebuilt from what the generator recorded as compilation's input, so
+    // this checks `Tx` against Solana's own crates rather than against
+    // another part of this package.
+    $instructions = [];
+    foreach ($tx['source_instructions'] as $source) {
+        $accounts = [];
+        foreach ($source['accounts'] as $account) {
+            $accounts[] = new AccountMeta($account['pubkey'], $account['is_signer'], $account['is_writable']);
         }
+        $instructions[] = new Instruction($source['program_id'], $accounts, (string) hex2bin($source['data_hex']));
     }
-    foreach ($src as $i) {
-        $merged[$i['program_id']] ??= ['is_signer' => false, 'is_writable' => false];
+
+    try {
+        $message = Tx::compile($instructions, $tx['fee_payer'], $tx['recent_blockhash']);
+    } catch (TxException $e) {
+        check("$name: message bytes", false, 'Tx::compile refused it -- '.$e->getMessage());
+        continue;
     }
-    $merged[$tx['fee_payer']] = ['is_signer' => true, 'is_writable' => true];
 
-    check("$name: fee payer leads account_keys", ($keys[0] ?? null) === $tx['fee_payer']);
+    check("$name: message bytes", bin2hex($message) === $tx['message_hex'],
+        whereMessagesDiffer(bin2hex($message), $tx['message_hex'], count($tx['account_keys'])));
 
-    // Exactly the merged set: deduplicated, nothing missing, nothing extra.
-    $extra = array_values(array_diff($keys, array_keys($merged)));
-    $missing = array_values(array_diff(array_keys($merged), $keys));
-    check("$name: account_keys are the merged set",
-        count(array_unique($keys)) === count($keys) && $extra === [] && $missing === [],
-        $extra === [] && $missing === []
-            ? count($keys).' keys'
-            : 'extra: '.implode(',', $extra).' missing: '.implode(',', $missing));
-
-    $signers = array_filter($merged, static fn (array $m): bool => $m['is_signer']);
-    check("$name: header signature count", $hdr['num_required_signatures'] === count($signers),
-        $hdr['num_required_signatures'].' required, '.count($signers).' signers');
-
-    // The header does not merely count -- it *partitions* the key list.
-    // Signers first, writable before readonly within each half, so the three
-    // counts alone determine which keys the runtime will let the program
-    // write. Hold that partition against the merged flags.
-    $req = $hdr['num_required_signatures'];
-    $writableSigners = $req - $hdr['num_readonly_signed_accounts'];
-    $writableOthers = count($keys) - $req - $hdr['num_readonly_unsigned_accounts'];
-    $bad = [];
-    foreach ($keys as $n => $key) {
-        $isSigner = $n < $req;
-        $isWritable = $isSigner ? $n < $writableSigners : $n < $req + $writableOthers;
-        $want = $merged[$key] ?? ['is_signer' => false, 'is_writable' => false];
-        if ($isSigner !== $want['is_signer'] || $isWritable !== $want['is_writable']) {
-            $bad[] = "key $n";
-        }
+    $signatures = array_map(static fn (string $hex): string => (string) hex2bin($hex), $tx['signatures_hex']);
+    try {
+        $wire = Tx::wire($message, $signatures);
+    } catch (TxException $e) {
+        check("$name: wire bytes", false, 'Tx::wire refused it -- '.$e->getMessage());
+        continue;
     }
-    check("$name: header partitions the keys", $bad === [],
-        $bad === [] ? "$writableSigners writable signer(s), $writableOthers writable non-signer(s)" : implode(', ', $bad));
 
-    // Inside each partition the keys ascend by raw pubkey bytes -- NOT by the
-    // order the instructions named them. An encoder that keeps instruction
-    // order within a partition builds a different message that still looks
-    // right, which is the single most likely way to get this wrong.
-    //
-    // The fee payer is the exception, and it is a rule rather than an
-    // accident: compilation pulls it out and puts it first instead of sorting
-    // it into place. The "two-instructions" case has a second writable signer
-    // that sorts *before* the fee payer, so an encoder that sorts them all
-    // together passes the other cases and fails that one.
-    $bounds = [
-        'writable signers' => [0, $writableSigners],
-        'readonly signers' => [$writableSigners, $req],
-        'writable non-signers' => [$req, $req + $writableOthers],
-        'readonly non-signers' => [$req + $writableOthers, count($keys)],
-    ];
-    $bad = [];
-    foreach ($bounds as $label => [$from, $to]) {
-        $slice = array_slice($keys, $from, $to - $from);
-        if ($from === 0) {
-            array_shift($slice);   // the fee payer, prepended rather than sorted
-        }
-        $raw = array_map(static fn (string $k): string => \SolPay\Core\Base58::decode($k), $slice);
-        $sorted = $raw;
-        sort($sorted, SORT_STRING);
-        if ($raw !== $sorted) {
-            $bad[] = $label;
-        }
-    }
-    check("$name: partitions sorted by pubkey", $bad === [],
-        $bad === [] ? 'fee payer first, the rest ascending' : implode(', ', $bad));
-
-    // The header is the first three bytes, and the compact-u16 account-key
-    // count is the fourth -- single-byte while the count is under 128, which
-    // it is here and which `Tx::compile` must not assume in general.
-    $wantHead = sprintf('%02x%02x%02x%02x',
-        $hdr['num_required_signatures'],
-        $hdr['num_readonly_signed_accounts'],
-        $hdr['num_readonly_unsigned_accounts'],
-        count($keys));
-    check("$name: message header and key count", str_starts_with($tx['message_hex'], $wantHead),
-        substr($tx['message_hex'], 0, 8).' vs '.$wantHead);
-
-    // The keys, the blockhash, then the instruction count, at the offsets
-    // those counts imply.
-    $bad = [];
-    foreach ($keys as $n => $key) {
-        if (substr($msg, 4 + 32 * $n, 32) !== \SolPay\Core\Base58::decode($key)) {
-            $bad[] = "key $n";
-        }
-    }
-    check("$name: message account_keys", $bad === [], $bad === [] ? count($keys).' in order' : implode(', ', $bad));
-
-    $hashAt = 4 + 32 * count($keys);
-    check("$name: message recent_blockhash",
-        substr($msg, $hashAt, 32) === \SolPay\Core\Base58::decode($tx['recent_blockhash']));
-
-    check("$name: message instruction count",
-        substr($msg, $hashAt + 32, 1) === chr(count($src)) && count($tx['instructions']) === count($src),
-        count($src).' instruction(s)');
-
-    // Compilation moves accounts into indexes; it must not touch the payload,
-    // reorder an instruction's accounts, or lose which program is called.
-    $bad = [];
-    foreach ($tx['instructions'] as $n => $ci) {
-        $want = $src[$n] ?? null;
-        if ($want === null) {
-            $bad[] = "instruction $n unmatched";
-            continue;
-        }
-        if (($keys[$ci['program_id_index']] ?? null) !== $want['program_id']) {
-            $bad[] = "instruction $n program id";
-        }
-        $order = [];
-        foreach ($ci['account_indexes'] as $idx) {
-            $order[] = $keys[$idx] ?? null;
-        }
-        if ($order !== array_column($want['accounts'], 'pubkey')) {
-            $bad[] = "instruction $n account order";
-        }
-        if ($ci['data_hex'] !== $want['data_hex']) {
-            $bad[] = "instruction $n data";
-        }
-    }
-    check("$name: compiled instructions", $bad === [],
-        $bad === [] ? count($tx['instructions']).' matching source' : implode(', ', $bad));
-
-    // Wire framing: compact-u16 signature count, the signatures, then the
-    // message. One signature per required signature, and the count is a
-    // single byte at these sizes.
-    $sigs = $tx['signatures_hex'];
-    check("$name: signature count", count($sigs) === $req, count($sigs).' of '.$req);
-    $lengths = array_unique(array_map('strlen', $sigs));
-    check("$name: signature lengths", $lengths === [128] || $lengths === [], implode(',', $lengths));
-    check("$name: wire framing",
-        $tx['wire_hex'] === sprintf('%02x', count($sigs)).implode('', $sigs).$tx['message_hex']);
+    check("$name: wire bytes", bin2hex($wire) === $tx['wire_hex'],
+        strlen($wire).' bytes = '.count($signatures).' signature(s) + '.strlen($message));
 }
 
 $sa = $v['site_account'];

@@ -21,6 +21,7 @@ the site authority. This package covers the server row only:
 | `units.rs` | `Units` |
 | `program.rs` | `Program` |
 | `ids.rs` | `Ids` |
+| *(nothing)* | `Tx` — `compile`, `wire`; see "Transaction assembly" below |
 
 The payer-signed instructions — `open_contract`, `renew_contract`,
 `close_contract`, `approve_checked`, `revoke` — and `tx.rs`'s ordered pairing
@@ -86,9 +87,9 @@ program rather than transcribed by hand —
   anchor_lang::error::ERROR_CODE_OFFSET` against `pay-on-chain`'s own enum.
 - The `TokenError` code table, read from `spl_token::error::TokenError`.
 - Three compiled legacy transaction messages and their wire bytes, from
-  `solana-message` and `solana-transaction`. Nothing checks these against a
-  PHP encoder yet, because there is no PHP encoder — see "The order this has
-  to happen in" below for why they exist first, and what each case covers.
+  `solana-message` and `solana-transaction`, checked byte-for-byte against
+  `Tx::compile` and `Tx::wire` — see "The order this has to happen in" below
+  for what each case covers and why they were generated first.
 
 `tests/Core/PdaTest.php`, `IxTest.php`, `StateTest.php`, and `ErrorTest.php`
 assert against those values as hardcoded literals, so a mismatch surfaces as
@@ -98,7 +99,7 @@ Regenerate and re-run after touching `state.rs`, `errors.rs`, `pda.rs`, or
 
 ```
 ../bin/test-php    # regenerate the vectors, then check src/Core against them
-composer test      # the four PHPUnit suites above, against their literals
+composer test      # the five PHPUnit suites above, against their literals
 ```
 
 Those are two different questions and neither replaces the other. Frozen
@@ -143,13 +144,12 @@ preflight inputs — blocked or not, and which cause — would at least check
 the predicates against something the program produced rather than against a
 second reading of it.
 
-## Planned: transaction assembly (`SolPay\Tx`)
+## Transaction assembly (`SolPay\Tx`)
 
-**Decided 2026-09-04, not built.** Recorded here rather than left in a
-scratch note because the gap is real, and because the reasoning against the
-obvious shortcut is the part that would be lost. What was decided is that
-this package compiles the message itself; see "Decided: this, not the
-sidecar" below for what that was weighed against.
+**Decided and built 2026-09-04.** The reasoning against the obvious shortcut
+is kept below because it is the part that would otherwise be lost. What was
+decided is that this package compiles the message itself; see "Decided: this,
+not the sidecar" for what that was weighed against.
 
 A PHP site authority holding an `Instruction` from `SolPay\Core\Ix` cannot
 send it. Between the instruction and the wire there is a legacy transaction
@@ -293,34 +293,36 @@ arithmetic already accepted here.
      encoder that sorts all the writable signers together passes the other
      two cases and fails that one.
 
-   Until `Tx` exists there is nothing to compare against, so
-   `conformance/vectors.php` checks what it can, per case: that the vector is
-   present and internally consistent, and that it agrees with the
-   instructions a different crate compiled — the fee payer leads the account
-   keys, the keys are exactly the merged set with nothing missing or extra,
-   the header counts match the signers, the three counts partition the key
-   list the way the merged flags say they should, each partition is sorted
-   with the fee payer excepted, the message carries the keys, the blockhash
-   and the instruction count at the offsets those counts imply, the compiled
-   indexes resolve to each source instruction's own program and accounts in
-   order, the payload is untouched, and the wire bytes are the signature
-   count, the signatures and the message. That block reads each message at
-   fixed offsets and reads the partition the counts imply. **It must not grow
-   into a second implementation of what `Tx::compile` will do** — it orders
-   nothing and derives no count, and when `Tx` lands the byte-for-byte
-   comparison replaces these shape checks rather than joining them.
+   While there was no encoder, `conformance/vectors.php` checked what it
+   could: that each vector was present, internally consistent, and in
+   agreement with the instructions a different crate compiled. Those checks
+   are gone now, replaced by the byte-for-byte comparison they were standing
+   in for — the promise made when they were written, kept rather than left
+   to accumulate.
 
-2. **Then `SolPay\Tx`**, with a `tests/Core/TxTest.php` whose expected values
-   are hardcoded literals, for the same reason the other four suites are —
-   the conformance run notices the crate moving, the literals name which
-   local edit broke something.
-3. **Prove it in the demonstrator against devnet, then promote it.** That is
-   the path `pda-spike/php/` took into `src/Core`, which makes this a
-   precedent here rather than a new practice. With `meter_and_settle` signed
-   by the site authority, compilation sits on the metering path rather than
-   only in first-run setup, so it is exercised on every settling request —
-   the best evidence available for whether it deserves promotion.
+2. **Then `SolPay\Tx` — done.** `compile` and `wire` in `src/Core/Tx.php`,
+   with `tests/Core/TxTest.php` asserting hardcoded literals for the same
+   reason the other four suites do: the conformance run notices the crate
+   moving, the literals name which local edit broke something.
+
+   `conformance/vectors.php` now compares `Tx`'s output to all three vectors
+   byte-for-byte. The shape checks that stood in while there was no encoder
+   are gone, replaced by one diagnostic — a mismatch reports the byte and the
+   section it falls in ("byte 4, in account key 0"), because a hex diff of
+   348 bytes says only "differs".
+3. **Prove it against devnet in the demonstrator — still open.** The
+   conformance run proves `Tx` agrees byte-for-byte with `solana-message` and
+   `solana-transaction` on three fixed cases. It does not prove a validator
+   accepts what comes out, and those are different claims: no signature here
+   is real, no blockhash here was ever current, and nothing has paid a fee.
+   With `meter_and_settle` signed by the site authority, compilation sits on
+   the metering path rather than only in first-run setup, so the demonstrator
+   exercises it on every settling request — the best evidence available, and
+   the first time this code meets a chain.
 4. **Then amend SPEC §7's sentence**, which §7 already carries as pending.
+   Held until step 3, deliberately: §7 describes what the library does, and
+   "compiles the message that carries them" is a claim better made after a
+   validator has accepted one.
 
 ### The scope boundary, stated so it is not a surprise later
 

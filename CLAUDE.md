@@ -224,13 +224,12 @@ than copied:
 - The `TokenError` code table, read the same way from `spl_token::error::TokenError`
   (already in the tree transitively via `anchor-spl`) — also checked by `ErrorTest`.
 - Three compiled legacy transaction messages and their wire bytes, from
-  `solana-message` and `solana-transaction` — checked only for shape so far,
-  by `conformance/vectors.php`, because the PHP encoder they exist for does
-  not exist yet. The three cases reach the branches one case cannot: an empty
-  readonly-signer partition, cross-instruction flag merging, and the fee
-  payer being prepended rather than sorted. `php-client/README.md`, "The
-  order this has to happen in", says which is which — read it before adding
-  or removing a case. **Those two crates are pinned to the solana 2.x generation
+  `solana-message` and `solana-transaction` — checked byte-for-byte against
+  `Tx::compile`/`Tx::wire` by `conformance/vectors.php`. The three cases
+  reach the branches one case cannot: an empty readonly-signer partition,
+  cross-instruction flag merging, and the fee payer being prepended rather
+  than sorted. `php-client/README.md`, "The order this has to happen in",
+  says which is which — read it before adding or removing a case. **Those two crates are pinned to the solana 2.x generation
   and that is not a free choice** — `ix::meter_and_settle` returns a 2.x
   `Instruction`, and 4.x wants a 3.x one plus `solana_address::Address`, so
   reaching for current versions would mean rebuilding the instruction across
@@ -246,18 +245,26 @@ nothing, so this is the one part of the package kept in step by hand. Open
 work, with the options recorded — `php-client/README.md`, "Drift control",
 and SPEC §8.1.
 
-Two more open items live in `php-client/README.md` under "Planned:
-transaction assembly (`SolPay\Tx`)": a PHP site authority cannot compile the
-transaction message that carries an `Ix` instruction, and the vectors for one
-must exist before any encoder does. Read that section before adding anything
-to `src/Core` beyond the table above.
+`SolPay\Tx` closes the gap that section describes: a PHP site authority can
+now compile the message that carries an `Ix` instruction and frame it for the
+wire. `compile` and `wire` are pure, legacy-message-only, and checked
+byte-for-byte against Solana's own crates. **The rules to know before
+touching it** — because both are invisible until a vector disagrees with you
+— are that keys ascend by *raw pubkey bytes* inside each header partition
+rather than by the order the instructions named them, and that the fee payer
+is prepended rather than sorted and is forced writable even when the
+instruction marked it readonly. `php-client/README.md`, "Transaction
+assembly", carries the rest. What remains open there is devnet: nothing in
+those vectors has a real signature, a current blockhash, or has paid a fee,
+so the demonstrator is the first time this code meets a chain — and SPEC §7's
+amendment is held until it has.
 
 Regenerate and re-check after touching `state.rs`, `errors.rs`, `pda.rs`, or
 `ix.rs`:
 
 ```
 bin/test-php                   # regenerate vectors, check src/Core against them
-cd php-client && composer test # PdaTest, IxTest, StateTest, ErrorTest
+cd php-client && composer test # PdaTest, IxTest, StateTest, ErrorTest, TxTest
 ```
 
 `bin/test-php` replaced the three `cd` steps this used to list. It runs the

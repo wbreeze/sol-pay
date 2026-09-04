@@ -151,7 +151,7 @@ What the sidecar does not reach is PHP. A sidecar is the answer for a
 language with no package; PHP has one, and one whose zero runtime
 dependencies and 8.1 floor are the reason it installs where it has to, so
 **PHP reaches transaction assembly through `SolPay\Tx` instead** -- decided
-2026-09-04, `php-client/README.md`, "Planned: transaction assembly". The
+2026-09-04, `php-client/README.md`, "Transaction assembly". The
 consequence is deliberate and is not softened here: this library keeps a
 second implementation of the encoding, §8.1's objection included, and §8.1
 names the machinery that has to carry it.
@@ -709,7 +709,12 @@ server it means hand-writing a wire encoding, because nothing in sol-pay
 compiles a legacy transaction message in any language -- `core::tx` pairs
 instructions in the order the program requires, which is ordering and not
 wire format. The sentence did not change; the population it applies to did.
-When `SolPay\Tx` lands -- decided, not yet built (§3.1) -- "it builds
+`SolPay\Tx` was built on 2026-09-04 and its output agrees byte-for-byte with
+`solana-message` and `solana-transaction` on every conformance run. The
+amendment is still **held**, and on purpose: agreeing with the reference
+implementation on three fixed cases is not the same claim as a validator
+accepting a transaction, and no signature in those vectors is real. Once the
+demonstrator has settled a metering call against devnet, "it builds
 instructions and decodes bytes" becomes "it builds instructions and the
 message that carries them, and decodes bytes" -- and every verb above
 survives it unchanged: still no signing, no signature verification, no
@@ -767,14 +772,15 @@ well as on the version it is developed against; `bin/test-php` is the same
 check by hand.
 
 It also emits three compiled legacy transaction messages and their wire bytes,
-from `solana-message` and `solana-transaction`. Those exist ahead of the PHP
-encoder they are for, and deliberately: the widening this section objects to
--- derive/encode/decode becoming derive/encode/decode/compile -- is paid for
-by the vectors, and an encoder written before them would take on the drift
-without buying the check. Until `SolPay\Tx` exists there is nothing to compare
-against, so `conformance/vectors.php` checks the vector's shape and its
-agreement with the instruction vector instead. `php-client/README.md`, "The
-order this has to happen in", carries the detail.
+from `solana-message` and `solana-transaction`, and `SolPay\Tx` is checked
+against all three byte-for-byte. Those vectors were generated *ahead* of the
+encoder, deliberately: the widening this section objects to -- derive/encode/
+decode becoming derive/encode/decode/compile -- is paid for by them, and an
+encoder written first would have taken on the drift without buying the check.
+The three cases are chosen to reach the branches one case cannot -- an empty
+readonly-signer partition, cross-instruction flag merging, and a fee payer
+prepended rather than sorted; `php-client/README.md`, "The order this has to
+happen in", carries the detail.
 
 That job is deliberately not `composer test`. The PHPUnit suite hardcodes its
 expected values as literals, which is the right shape for naming a local

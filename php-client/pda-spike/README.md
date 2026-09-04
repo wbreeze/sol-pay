@@ -3,9 +3,11 @@
 Run 2026-09-03. **Answer: yes, and the shortcut everyone reaches for first is
 wrong roughly half the time.**
 
-This settles the one unproven thing in `SPEC.md` §12.1's PHP route, and the
-cross-check against the published crate (below) has since closed the one gap
-the initial run left open.
+This settles the one unproven thing in the PHP route of §12.1 of the
+*demonstrator's* `SPEC.md` -- `sol-pay-demonstrator`, a separate repository;
+`wasm-client/SPEC.md` in this one ends at §8. The cross-check against the
+published crate (below) has since closed the one gap the initial run left
+open.
 
 ## What was in question
 
@@ -143,7 +145,7 @@ instruction encoding matched.
 | `php/verify.php` | checks against Rust-generated vectors |
 | `vectors-gen/` | the Rust generator (needs crates.io; also depends on `pay-on-chain` and `spl-token` directly, for the account and error-code vectors `php-client/src/Core`'s tests check against — see CLAUDE.md's php-client section) |
 
-## What this means for §12.1
+## What this means for the demonstrator's §12.1
 
 The PHP route's one unproven thing is now proven, cross-checked byte-for-byte
 against the published `sol-pay-client` crate. It costs 280 lines of field

@@ -76,11 +76,52 @@ A site running sol-pay executes code in two places, with different needs.
 | | signs | needs | artifact |
 | --- | --- | --- | --- |
 | Browser | payer, via wallet adapter | `approve_checked`, `open_contract`, `renew_contract`, `close_contract`, `revoke`, decoders, preflight | npm package |
-| Server | site authority | `meter_and_settle`, `initialize_site`, decoders, preflight | crates.io crate |
+| Server | site authority | `meter_and_settle`, `initialize_site`, decoders, preflight | crates.io crate, or a port -- §3.1 |
 
 The server never holds the payer's key; the browser never holds the site
 authority. `meter_and_settle` is the only instruction the site signs, and the
 program enforces it (`has_one = authority`).
+
+### 3.1 The server row does not say Rust
+
+The browser row is settled by something outside anyone's choice: Wallet
+Standard is browser JavaScript, so the payer signs in a browser whatever else
+is true. The server row is not settled. It says what the server *needs*, not
+what it is written in, and an early draft of this table said "crates.io crate"
+as though those were the same thing.
+
+A survey of the sites that would plausibly adopt this, 2026-09-02, found the
+assumption expensive. PHP is the server-side language of about 70% of the sites
+W3Techs can identify, and of essentially the entire CMS market; Node serves
+most of the large publishers that already run paywalls; Rust is not tracked at
+all, and appears nowhere in the sub-0.1% tail. No news publisher of any size
+was found running a Rust web application server. **A crates.io crate on its own
+therefore reaches on the order of 1% of candidate integrations, and
+approximately none of the ones that already have a paywall to replace.**
+
+That is not an argument against the crate. It is the right core and the right
+place for the encoding, and everything else here is built from it. It is an
+argument that the crate is not by itself a distribution strategy.
+
+What exists so far is `php-client`: a port of this row -- the site-signed
+instructions, the decoders, preflight, units and errors -- for a server with
+no Rust toolchain and no WASM runtime. The payer-signed half is absent from it
+deliberately, since those are signed in a browser regardless of what the server
+runs. A port is the most expensive of the available answers, and §8.1 says what
+it costs to keep one honest.
+
+Two remedies are **undecided**, named here so that not having chosen is
+visible rather than silent:
+
+- **The Node tier.** A `wasm-pack --target nodejs` or `bundler` build would
+  reach it from this same source tree: no new API surface, no second
+  implementation, no new source of drift. It is by a wide margin the cheapest
+  remaining option, and nothing has been decided about it.
+- **Everything else.** A sidecar with a documented HTTP interface would reach
+  any language at all, at the cost of a deployment unit for people who wanted
+  a package. What it exposes is a signing oracle, so its trust boundary --
+  Unix socket and file permissions, or mTLS -- would be part of this library
+  rather than something each integrator invents. Also undecided.
 
 ## 4. What the integrator owns
 
@@ -284,6 +325,12 @@ README's "Publishing" for what to check before the first push.
 Carried over from the dependency policy: a published crate's `Cargo.lock` is
 ignored by consumers. They re-resolve inside the ranges in `Cargo.toml`, so
 those ranges become the real compatibility contract on the day this ships.
+
+**A third, later, and not yet published.** `php-client` (2026-09-03) packages
+the server row of §3 for PHP, as `wbreeze/sol-pay-client` on Composer. It is
+not on Packagist and nothing depends on it yet. It is nonetheless meant to
+become a real artifact rather than to stay a demonstration, which is what makes
+§8.1 work owed now rather than advice for later.
 
 ## 6. API surface
 
@@ -630,3 +677,33 @@ Every claim this document makes about the program is pinned by a test in
 
 The last one is the point of the exercise. A predicate that disagrees with the
 program is worse than no predicate.
+
+### 8.1 A second implementation is a second source of drift
+
+`php-client` re-implements this core in another language. The tests above pin
+this document's claims against the program; none of them say whether a port
+agrees with the crate. That gap matters more than the usual kind, because a
+divergent port does not fail cleanly -- it produces a plausible transaction
+that does the wrong thing, and then someone signs it.
+
+Conformance vectors are what close it, and they have to begin at **PDA
+derivation** rather than at instruction encoding, which is where an argument
+about drift naturally reaches first. The predicate `find_program_address` turns
+on -- does this 32-byte value decode to a point on the Ed25519 curve -- has no
+correct off-the-shelf equivalent in PHP, and the function a developer finds
+first is a stricter test that yields a different address about 46% of the time
+without raising anything. That is the first primitive, below everything
+sol-pay-specific: a port can be wrong there while every layer above it is
+right. `php-client/pda-spike/README.md` carries the measurement.
+
+The hazard is not particular to PHP. A crypto library that offers point
+validation offers the strict predicate, because strictness is what signature
+verification wants; Solana wants only decompressibility. Any future port meets
+the same trap, and it will look like the right function.
+
+`php-client/pda-spike/vectors-gen` already generates the vectors, from the
+*published* crate rather than from local source, and already covers both
+layers -- 800 PDAs and one fully-built `meter_and_settle` with its account list
+and flags. No CI job runs it. That job is the precondition for anything
+depending on the PHP package: a divergence found after publication is found by
+an integrator.

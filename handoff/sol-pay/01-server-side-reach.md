@@ -4,6 +4,13 @@ Surfaced 2026-09-02 while choosing a platform for the demonstrator. Filed
 against sol-pay because the demo's own choice is trivial and the question
 underneath it is not.
 
+**Status, 2026-09-04.** The conclusion, the fact that `php-client` answers the
+PHP case, and the two remedies still unchosen are now recorded in
+`wasm-client/SPEC.md` §3.1; the cost of keeping a port honest is in §8.1. What
+remains here is the evidence behind them, kept because **the Node-tier
+question is still open** and this is its brief. Delete it when that is decided,
+or when it becomes an issue.
+
 ## The question
 
 `wasm-client/SPEC.md` §3 splits the library into two consumers: a browser that
@@ -48,47 +55,18 @@ application server.
 overwhelmingly not web serving. Node.js 48.7% and Next.js 20.8% among
 frameworks.
 
-## The conclusion
+## What the table above says about the Node tier
 
-**A Rust-only server half addresses on the order of 1% of candidate
-integrations, and approximately none of the ones that already have a paywall to
-replace.**
+This is the part still to decide, and the publisher rows are the argument. The
+PHP mass is CMS-shaped — WordPress installations, where the integration is a
+plugin. The Node mass is different: the FT, the Washington Post's Arc XP, the
+Guardian's rendering layer and Substack are all places where **entitlement
+logic already runs in Node**, which is exactly the code a metering decision
+would sit beside. That tier is reachable from this source tree with a build
+flag, and reaching it requires no second implementation and no new API surface.
 
-This is not an argument against the crate, which is the right core and the
-right place for the encoding. It is an argument that the crate is not a
-distribution strategy.
-
-## Four things that would change it, cheapest first
-
-**1. A `wasm-pack --target nodejs` (or `bundler`) build.** The browser bundle
-already exists; the same source tree with a different target reaches the Node
-tier — which, per the table above, is where the large publishers' entitlement
-logic actually runs. This looks like by far the highest ratio of reach to work
-available, and it needs no new API surface, no second implementation, and no
-new source of drift.
-
-**2. A sidecar with a documented HTTP interface.** One Rust process; any
-language calls it. It reaches PHP, which nothing else here does. It also
-happens to be a better answer to key custody than an environment variable,
-because it keeps the site authority out of a web worker entirely. Two costs to
-state up front: it adds a deployment unit for people who wanted a Composer
-package, and what it exposes is a **signing oracle**, so its trust boundary
-(Unix socket and file permissions, or mTLS) is part of the library rather than
-the integrator's problem to invent.
-
-**3. Split the halves by what they need.** Decoding a 97-byte `Contract` and a
-129-byte `Site` and running six preflight predicates is pure arithmetic with no
-key, no network and no ambient state — genuinely portable, and it is the half a
-CMS calls on every page view. Building and signing is where the Rust core earns
-its keep. A portable read half plus a Rust write half reaches much further than
-either alone.
-
-**4. Per-language ports.** Best integrator experience, highest maintenance
-risk: a divergent port does not fail cleanly, it produces a plausible
-transaction that does the wrong thing and then someone signs it. Only
-defensible with cross-language conformance vectors generated from the Rust
-core and run in every port's CI — which is `SPEC.md` §8's drift-control
-argument applied across languages instead of across crates.
+Against it: nothing yet, which is itself worth noticing. It has not been argued
+down, only not taken up.
 
 ## Precedent worth noting
 

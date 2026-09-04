@@ -9,7 +9,7 @@ a reference code base or example. Do not expect it to work.
 
 ## What is here
 
-Two Rust crates, and one PHP proof of concept:
+Two Rust crates, and one PHP port:
 
 - `pay-on-chain` — the metering program, built with the
   [Anchor framework][anchor], and its LiteSVM test suite.
@@ -18,8 +18,9 @@ Two Rust crates, and one PHP proof of concept:
 - `php-client` — a server-side PHP client covering the site-signed half of
   `wasm-client`'s API: PDA derivation, instruction building, account
   decoding, preflight, and error mapping, for a PHP server with no Rust
-  toolchain and no WASM runtime. Packaged as a Composer library, not
-  published. See `php-client/README.md`.
+  toolchain and no WASM runtime. Packaged as a Composer library, not yet
+  published. See `php-client/README.md`, and `wasm-client/SPEC.md` §3.1 for
+  why a port exists at all.
 
 There is no front end. A Next.js application and its AWS Amplify deployment
 configuration used to live here; both were removed once the client library

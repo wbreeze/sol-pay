@@ -37,7 +37,7 @@ use SolPay\Core\Program;
 use SolPay\Core\Site;
 use SolPay\Core\TokenError;
 
-$path = $argv[1] ?? __DIR__.'/../pda-spike/php/vectors.json';
+$path = $argv[1] ?? __DIR__.'/../vectors-gen/vectors.json';
 if (!is_file($path)) {
     fwrite(STDERR, "no vector file at $path -- run the generator first (bin/test-php does)\n");
     exit(2);

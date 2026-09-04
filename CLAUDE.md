@@ -204,8 +204,11 @@ behind, since it exists only to demonstrate the pitfall below). The spike's
 own copies stay frozen as the record of that dated experiment — don't "fix"
 one without checking whether the other needs it too.
 
-**Drift control.** `pda-spike/vectors-gen` is the one place a PHP claim about
-the chain is checked against ground truth rather than transcribed by hand.
+**Drift control.** `php-client/vectors-gen` is the one place a PHP claim about
+the chain is checked against ground truth rather than transcribed by hand. It
+sits beside `src/` rather than under `pda-spike/` because it stopped being the
+spike's: `php-client/conformance/vectors.php`, `wasm-client/conformance/node.mjs`
+and `pda-spike/php/verify.php` all read the one `vectors.json` it writes.
 It emits four things, each sourced from the real crate or program rather
 than copied:
 
@@ -245,7 +248,7 @@ cd php-client && composer test # PdaTest, IxTest, StateTest, ErrorTest
 ```
 
 `bin/test-php` replaced the three `cd` steps this used to list. It runs the
-generator when `php-client/pda-spike/php/vectors.json` is missing, then
+generator when `php-client/vectors-gen/vectors.json` is missing, then
 `php-client/conformance/vectors.php`, which checks the **package** and not
 the spike: both PDA families with bumps, the instruction data and every
 account's flags, both decoders, both error tables. The vectors are gitignored
@@ -319,8 +322,8 @@ crate moving.
   deleting it.
 - Version facts belong in a lock file or a CI job, not in a paragraph asking
   the reader to verify them by hand.
-- `wasm-client/pkg/`, both `target/` directories, `php-client/pda-spike/vectors-gen/target/`,
-  and `php-client/pda-spike/php/vectors.json` are gitignored build/generated
+- `wasm-client/pkg/`, both `target/` directories, `php-client/vectors-gen/target/`,
+  and `php-client/vectors-gen/vectors.json` are gitignored build/generated
   output — never edit them. `wasm-client/LICENSE-*` are intentional duplicates
   of the root licences so they ship inside the published artifacts.
 - Publishing is deliberately unscripted (see `wasm-client/README.md`): it is

@@ -18,8 +18,8 @@ final class StateTest extends TestCase
     /**
      * Genuine Anchor-serialized bytes -- pay_on_chain::state::Site's own
      * #[account] DISCRIMINATOR plus AnchorSerialize, not hand-assembled --
-     * produced by php-client/pda-spike/vectors-gen and recorded in
-     * php-client/pda-spike/php/vectors.json's "site_account". Regenerate
+     * produced by php-client/vectors-gen and recorded in
+     * php-client/vectors-gen/vectors.json's "site_account". Regenerate
      * with `cargo run --release > ../php/vectors.json` from vectors-gen/
      * after any change to pay-on-chain/programs/pay-on-chain/src/state.rs
      * and update this constant if it changes.

@@ -111,9 +111,11 @@ byte-for-byte agreement with `Pubkey::find_program_address`.
 
 That gap is now closed, run the same day on a machine with crates.io access:
 
+From `php-client/pda-spike/`:
+
 ```
-cd vectors-gen && cargo run --release > ../php/vectors.json
-cd ../php && php verify.php vectors.json
+( cd ../vectors-gen && cargo run --release > vectors.json )
+php php/verify.php
 ```
 
 ```
@@ -143,7 +145,13 @@ instruction encoding matched.
 | `php/t2.php` | the comparison experiment above |
 | `php/bench.php` | timing |
 | `php/verify.php` | checks against Rust-generated vectors |
-| `vectors-gen/` | the Rust generator (needs crates.io; also depends on `pay-on-chain` and `spl-token` directly, for the account and error-code vectors `php-client/src/Core`'s tests check against — see CLAUDE.md's php-client section) |
+
+The generator that produces those vectors was `vectors-gen/` here when this
+experiment ran. It has since moved up to `php-client/vectors-gen`, because
+the package's own `conformance/vectors.php` and `wasm-client`'s Node
+conformance check read the same file and it is no longer the spike's — see
+CLAUDE.md's php-client section for what it emits and why each piece is
+sourced from the crate or the program rather than transcribed.
 
 ## What this means for the demonstrator's §12.1
 

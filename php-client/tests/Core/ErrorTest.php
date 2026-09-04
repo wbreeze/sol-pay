@@ -18,10 +18,10 @@ use SolPay\Core\TokenError;
 final class ErrorTest extends TestCase
 {
     /**
-     * Every PayError code, read by php-client/pda-spike/vectors-gen as
+     * Every PayError code, read by php-client/vectors-gen as
      * `PayError::<variant> as u32 + anchor_lang::error::ERROR_CODE_OFFSET`
      * against pay-on-chain's own enum -- not copied by hand -- and recorded
-     * in php-client/pda-spike/php/vectors.json's "pay_errors". Regenerate
+     * in php-client/vectors-gen/vectors.json's "pay_errors". Regenerate
      * after any change to errors.rs and update this table if it changes.
      */
     public function testPayErrorCodesMatchTheProgramsOwnEnum(): void

@@ -23,7 +23,7 @@ import { pathToFileURL } from 'node:url';
 import { argv, exit } from 'node:process';
 
 const pkgDir = argv[2] ?? new URL('../pkg', import.meta.url).pathname;
-const vectorsPath = argv[3] ?? new URL('../../php-client/pda-spike/php/vectors.json', import.meta.url).pathname;
+const vectorsPath = argv[3] ?? new URL('../../php-client/vectors-gen/vectors.json', import.meta.url).pathname;
 
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const base58 = (bytes) => {

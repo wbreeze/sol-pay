@@ -16,7 +16,7 @@ namespace SolPay\Core;
  * structs in the on-chain program exactly, the same discipline as
  * wasm-client/src/core/ix.rs -- and this module's `meter_and_settle` output
  * is checked byte-for-byte against that crate's own output; see
- * php-client/tests/Core/IxTest.php and php-client/pda-spike/php/vectors.json.
+ * php-client/tests/Core/IxTest.php and php-client/vectors-gen/vectors.json.
  */
 final class Ix
 {

@@ -758,7 +758,7 @@ validation offers the strict predicate, because strictness is what signature
 verification wants; Solana wants only decompressibility. Any future port meets
 the same trap, and it will look like the right function.
 
-`php-client/pda-spike/vectors-gen` generates the vectors from the *published*
+`php-client/vectors-gen` generates the vectors from the *published*
 crate rather than from local source, and covers both layers -- 800 PDAs and one
 fully-built `meter_and_settle` with its account list and flags. The
 `php conformance` workflow runs them against `php-client/src/Core` on every

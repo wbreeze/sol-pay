@@ -66,8 +66,8 @@ fi
 # and nothing in this repository builds it -- `composer install` does, when a
 # person asks for it.
 if [ "$want_program" = 1 ] && [ "$want_client" = 1 ]; then
-  drop php-client/pda-spike/vectors-gen/target
-  drop php-client/pda-spike/php/vectors.json
+  drop php-client/vectors-gen/target
+  drop php-client/vectors-gen/vectors.json
 fi
 
 echo "done."

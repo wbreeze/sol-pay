@@ -18,14 +18,14 @@ on:
     branches: [master, client]
     paths:
       - 'wasm-client/**'
-      - 'php-client/pda-spike/vectors-gen/**'
+      - 'php-client/vectors-gen/**'
       - 'pay-on-chain/programs/**'
       - 'bin/**'
       - '.github/workflows/node-conformance.yml'
   pull_request:
     paths:
       - 'wasm-client/**'
-      - 'php-client/pda-spike/vectors-gen/**'
+      - 'php-client/vectors-gen/**'
       - 'pay-on-chain/programs/**'
       - 'bin/**'
       - '.github/workflows/node-conformance.yml'
@@ -53,7 +53,7 @@ jobs:
         with:
           workspaces: |
             wasm-client
-            php-client/pda-spike/vectors-gen
+            php-client/vectors-gen
 
       - name: Install wasm-pack
         uses: jetli/wasm-pack-action@v0.4.0
@@ -65,7 +65,7 @@ jobs:
       # outside opinion about what the right answers are; generating them from
       # local source would only prove the bundle agrees with itself.
       - name: Generate vectors
-        working-directory: php-client/pda-spike/vectors-gen
+        working-directory: php-client/vectors-gen
         run: cargo run --release --locked > "$GITHUB_WORKSPACE/vectors.json"
 
       - uses: actions/upload-artifact@v4

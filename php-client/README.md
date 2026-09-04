@@ -73,9 +73,9 @@ dependencies either.
 ## Drift control
 
 Nothing here can call into the Rust core, so nothing here is provably right
-without a check against it. `php-client/pda-spike/vectors-gen` is that
-check: a small Rust binary, unpublished, that emits four things sourced from
-the real crate and program rather than transcribed by hand —
+without a check against it. `vectors-gen/` is that check: a small Rust
+binary, unpublished, that emits four things sourced from the real crate and
+program rather than transcribed by hand —
 
 - PDA derivation and one `meter_and_settle` instruction, from the published
   `sol-pay-client` crate on crates.io.
@@ -233,7 +233,7 @@ arithmetic already accepted here.
 
 ### The order this has to happen in
 
-1. **Vectors before the encoder.** Extend `pda-spike/vectors-gen` to emit the
+1. **Vectors before the encoder.** Extend `vectors-gen` to emit the
    expected message and wire bytes for one fixed `(instruction, fee payer,
    blockhash)` triple, produced by `solana-message` and `solana-transaction`
    rather than transcribed by hand, and check them from

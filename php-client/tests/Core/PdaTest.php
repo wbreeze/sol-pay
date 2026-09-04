@@ -10,9 +10,9 @@ use SolPay\Core\Ids;
 use SolPay\Core\Pda;
 
 /**
- * Cross-checked against php-client/pda-spike/php/vectors.json, generated
+ * Cross-checked against php-client/vectors-gen/vectors.json, generated
  * from the published sol-pay-client 0.1.1 crate by
- * php-client/pda-spike/vectors-gen. Inputs are sha256("authority-0") and
+ * php-client/vectors-gen. Inputs are sha256("authority-0") and
  * sha256("payer-0"), the same derivation vectors-gen uses for its first
  * sample, so a fresh regeneration (see pda-spike/README.md) can be diffed
  * against these constants by hand.

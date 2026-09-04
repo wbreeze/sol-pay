@@ -47,7 +47,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: php-client/pda-spike/vectors-gen
+          workspaces: php-client/vectors-gen
 
       # `sol-pay-client` comes from crates.io here, not from ../wasm-client:
       # the vectors are supposed to be an outside opinion about what the right
@@ -55,7 +55,7 @@ jobs:
       # Anchor-serialized Site and Contract bytes and the real error
       # discriminants -- which is why this workflow watches that directory.
       - name: Generate vectors
-        working-directory: php-client/pda-spike/vectors-gen
+        working-directory: php-client/vectors-gen
         run: cargo run --release --locked > "$GITHUB_WORKSPACE/vectors.json"
 
       - uses: actions/upload-artifact@v4

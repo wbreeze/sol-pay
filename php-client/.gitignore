@@ -1,9 +1,9 @@
-# pda-spike's vector generator (Rust, not published)
-pda-spike/vectors-gen/target
+# The conformance vector generator (Rust, not published)
+vectors-gen/target
 **/*.rs.bk
 
 # generated conformance fixture, regenerated from vectors-gen
-pda-spike/php/vectors.json
+vectors-gen/vectors.json
 
 # Composer dependencies (phpunit/phpunit). composer.lock stays committed,
 # same reasoning as the two Cargo.lock files: a reproducible install.

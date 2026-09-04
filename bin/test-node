@@ -18,7 +18,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PKG="$ROOT/wasm-client/pkg"
-VECTORS="$ROOT/php-client/pda-spike/php/vectors.json"
+VECTORS="$ROOT/php-client/vectors-gen/vectors.json"
 
 command -v node >/dev/null 2>&1 || { echo "error: node not found." >&2; exit 1; }
 
@@ -32,7 +32,7 @@ fi
 # about what the right answers are.
 if [ ! -f "$VECTORS" ]; then
   echo "==> generating conformance vectors"
-  ( cd "$ROOT/php-client/pda-spike/vectors-gen" && cargo run --release --locked ) > "$VECTORS"
+  ( cd "$ROOT/php-client/vectors-gen" && cargo run --release --locked ) > "$VECTORS"
 fi
 
 echo "==> node conformance"

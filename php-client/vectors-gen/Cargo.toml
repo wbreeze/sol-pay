@@ -18,3 +18,29 @@ anchor-lang = "0.32.1"
 # So the TokenError code table comes from the real enum's declaration order,
 # not a hand-copied number. Already in the tree transitively via anchor-spl.
 spl-token = "8"
+
+# Legacy message compilation and wire framing, for the vectors `SolPay\Tx` is
+# written against. `Message::new_with_blockhash` and bincode do the work; this
+# crate assembles no transaction bytes by hand, which is the whole point of
+# generating the vectors rather than transcribing them.
+#
+# Pinned to the solana 2.x generation, deliberately and against the general
+# preference for current tooling. It is not a version this crate is free to
+# choose: `ix::meter_and_settle` returns a `solana_instruction::Instruction`
+# from the 2.x generation that the published `sol-pay-client` pins (and that
+# anchor-lang 0.32.1 and spl-token pin with it, for the same reason recorded in
+# wasm-client/Cargo.toml). solana-message 4.x wants a 3.x `Instruction` and a
+# `solana_address::Address`, so reaching for it would mean rebuilding this
+# crate's own instruction field-by-field across a generation boundary -- the
+# hand-transcription this generator exists to eliminate. The legacy message
+# wire format is consensus-critical and does not differ between the two, so
+# the newer crates would emit the same bytes and buy nothing here.
+solana-message = { version = "2.4", features = ["bincode", "serde"] }
+solana-transaction = { version = "2.2", features = ["bincode", "serde"] }
+solana-hash = "2.3"
+solana-instruction = "2.3"
+solana-signature = "2.3"
+# The wire encoding itself. Solana's own transaction wire format *is*
+# bincode over `Transaction`, and neither crate above exposes a whole-
+# transaction method -- `message_data()` stops at the message.
+bincode = "1.3"

@@ -209,7 +209,7 @@ the chain is checked against ground truth rather than transcribed by hand. It
 sits beside `src/` rather than under `pda-spike/` because it stopped being the
 spike's: `php-client/conformance/vectors.php`, `wasm-client/conformance/node.mjs`
 and `pda-spike/php/verify.php` all read the one `vectors.json` it writes.
-It emits four things, each sourced from the real crate or program rather
+It emits five things, each sourced from the real crate or program rather
 than copied:
 
 - PDA derivation and one `meter_and_settle` instruction, from the published
@@ -223,6 +223,19 @@ than copied:
   checked by `ErrorTest`.
 - The `TokenError` code table, read the same way from `spl_token::error::TokenError`
   (already in the tree transitively via `anchor-spl`) — also checked by `ErrorTest`.
+- Three compiled legacy transaction messages and their wire bytes, from
+  `solana-message` and `solana-transaction` — checked only for shape so far,
+  by `conformance/vectors.php`, because the PHP encoder they exist for does
+  not exist yet. The three cases reach the branches one case cannot: an empty
+  readonly-signer partition, cross-instruction flag merging, and the fee
+  payer being prepended rather than sorted. `php-client/README.md`, "The
+  order this has to happen in", says which is which — read it before adding
+  or removing a case. **Those two crates are pinned to the solana 2.x generation
+  and that is not a free choice** — `ix::meter_and_settle` returns a 2.x
+  `Instruction`, and 4.x wants a 3.x one plus `solana_address::Address`, so
+  reaching for current versions would mean rebuilding the instruction across
+  a generation boundary by hand. The reasoning is in `vectors-gen/Cargo.toml`;
+  read it before "updating" those pins.
 
 `Preflight` and `Units` are pure arithmetic with no chain-serialized bytes to
 cross-check; their PHPUnit tests mirror wasm-client's own `#[cfg(test)]`
@@ -248,13 +261,15 @@ cd php-client && composer test # PdaTest, IxTest, StateTest, ErrorTest
 ```
 
 `bin/test-php` replaced the three `cd` steps this used to list. It runs the
-generator when `php-client/vectors-gen/vectors.json` is missing, then
-`php-client/conformance/vectors.php`, which checks the **package** and not
-the spike: both PDA families with bumps, the instruction data and every
-account's flags, both decoders, both error tables. The vectors are gitignored
-and `bin/clean` removes them, so deleting that file is how you force a fresh
-generate. `pda-spike/php/verify.php` still runs and still only covers the
-spike's standalone `Pda`/`Base58`.
+generator **every time**, then `php-client/conformance/vectors.php`, which
+checks the **package** and not the spike: both PDA families with bumps, the
+instruction data and every account's flags, both decoders, both error tables.
+There is deliberately no skip-if-present guard — there was one, and a cached
+fixture silently turned this from drift control into a check against whatever
+the generator last said; the reasoning is in the script. `bin/test-node`
+regenerates unconditionally too, for a different reason written there: it
+shares the one fixture file, so one rule for both. `pda-spike/php/verify.php`
+still runs and still only covers the spike's standalone `Pda`/`Base58`.
 
 The PHPUnit tests hardcode the vector's values as literals rather than
 reading `vectors.json` at runtime — same style `PdaTest`/`IxTest` already

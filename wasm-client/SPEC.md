@@ -766,6 +766,16 @@ change to the port or to the program, on the floor `composer.json` declares as
 well as on the version it is developed against; `bin/test-php` is the same
 check by hand.
 
+It also emits three compiled legacy transaction messages and their wire bytes,
+from `solana-message` and `solana-transaction`. Those exist ahead of the PHP
+encoder they are for, and deliberately: the widening this section objects to
+-- derive/encode/decode becoming derive/encode/decode/compile -- is paid for
+by the vectors, and an encoder written before them would take on the drift
+without buying the check. Until `SolPay\Tx` exists there is nothing to compare
+against, so `conformance/vectors.php` checks the vector's shape and its
+agreement with the instruction vector instead. `php-client/README.md`, "The
+order this has to happen in", carries the detail.
+
 That job is deliberately not `composer test`. The PHPUnit suite hardcodes its
 expected values as literals, which is the right shape for naming a local
 regression and useless against the crate moving underneath it -- frozen

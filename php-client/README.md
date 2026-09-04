@@ -74,7 +74,7 @@ dependencies either.
 
 Nothing here can call into the Rust core, so nothing here is provably right
 without a check against it. `vectors-gen/` is that check: a small Rust
-binary, unpublished, that emits four things sourced from the real crate and
+binary, unpublished, that emits five things sourced from the real crate and
 program rather than transcribed by hand —
 
 - PDA derivation and one `meter_and_settle` instruction, from the published
@@ -85,6 +85,10 @@ program rather than transcribed by hand —
 - The `PayError` code table, computed as `PayError::<variant> as u32 +
   anchor_lang::error::ERROR_CODE_OFFSET` against `pay-on-chain`'s own enum.
 - The `TokenError` code table, read from `spl_token::error::TokenError`.
+- Three compiled legacy transaction messages and their wire bytes, from
+  `solana-message` and `solana-transaction`. Nothing checks these against a
+  PHP encoder yet, because there is no PHP encoder — see "The order this has
+  to happen in" below for why they exist first, and what each case covers.
 
 `tests/Core/PdaTest.php`, `IxTest.php`, `StateTest.php`, and `ErrorTest.php`
 assert against those values as hardcoded literals, so a mismatch surfaces as
@@ -233,14 +237,79 @@ arithmetic already accepted here.
 
 ### The order this has to happen in
 
-1. **Vectors before the encoder.** Extend `vectors-gen` to emit the
-   expected message and wire bytes for one fixed `(instruction, fee payer,
-   blockhash)` triple, produced by `solana-message` and `solana-transaction`
-   rather than transcribed by hand, and check them from
-   `conformance/vectors.php`. Writing the compiler first means hand-verifying
-   wire bytes, which is the same trap the PDA shortcut was — plausible
-   output, no error. No new surface in the shipped Rust client: the generator
-   reaches for Solana's crates directly.
+1. **Vectors before the encoder — done.** `vectors-gen` emits the expected
+   message and wire bytes for three fixed `(instructions, fee payer,
+   blockhash)` cases, produced by `solana-message` and `solana-transaction`
+   rather than transcribed by hand. Writing the compiler first would have
+   meant hand-verifying wire bytes, which is the same trap the PDA shortcut
+   was — plausible output, no error. No new surface in the shipped Rust
+   client: the generator reaches for Solana's crates directly.
+
+   The blockhash is `sha256("blockhash-0")` throughout, following the file's
+   own seeding convention. Signatures are 64 fixed bytes each, seeded per
+   case and position, and are not signatures over anything; they are there so
+   the wire framing around the message is covered for more than one signer.
+   Nothing in sol-pay signs, in any language, and this must not become the
+   place that starts.
+
+   Each vector records the message whole *and* in pieces — header counts,
+   ordered account keys, compiled instruction indexes — beside the
+   `source_instructions` that went into it. A byte-for-byte mismatch on the
+   whole says only "differs"; the pieces say whether the ordering, the header
+   or the shortvec framing is what went wrong, which is the same reason the
+   `meter_and_settle` vector records flags and not just its data.
+
+   **The three cases, and what each one is for.** One instruction signed and
+   paid for by one key leaves most of compilation unexercised, so the set is
+   chosen to reach every branch:
+
+   - `authority-pays` — the shipping shape: the site authority signs
+     `meter_and_settle` and pays. One signature. Nine keys, header `1/0/5`.
+   - `separate-fee-payer` — a relayer pays for someone else's instruction.
+     Two signatures, and the authority stays readonly, which is the only way
+     to put anything in the **readonly-signer partition**. The first case
+     leaves that partition empty, so without this one an encoder could omit
+     it entirely and still pass.
+   - `two-instructions` — `initialize_site` and `meter_and_settle` together,
+     paid by a third key. `site` is writable in the first and readonly in the
+     second, `treasury` the reverse, so this pins the **flag merge in both
+     directions**; both instructions call the same program, so its id must
+     appear **once**; and two instructions make the instruction array's
+     compact-u16 count something other than 1 for the first time.
+
+   Two rules are worth knowing before writing `compile`, because both are
+   invisible until a vector disagrees with you:
+
+   - **Within each partition the keys ascend by raw pubkey bytes, not by the
+     order the instructions named them.** In `authority-pays` the instruction
+     positions come out `3,5,4` and `7,2,6,–,0` while the bytes ascend
+     strictly. An encoder that preserves instruction order inside a partition
+     builds a different message that still looks right.
+   - **The fee payer is pulled out and put first rather than sorted into
+     place**, and it is forced to a writable signer even when the instruction
+     marked it readonly — it pays the fee. `two-instructions` is what
+     discriminates this: it has a second writable signer, and
+     `sha256("fee-payer-0")` sorts *after* `sha256("authority-0")`, so an
+     encoder that sorts all the writable signers together passes the other
+     two cases and fails that one.
+
+   Until `Tx` exists there is nothing to compare against, so
+   `conformance/vectors.php` checks what it can, per case: that the vector is
+   present and internally consistent, and that it agrees with the
+   instructions a different crate compiled — the fee payer leads the account
+   keys, the keys are exactly the merged set with nothing missing or extra,
+   the header counts match the signers, the three counts partition the key
+   list the way the merged flags say they should, each partition is sorted
+   with the fee payer excepted, the message carries the keys, the blockhash
+   and the instruction count at the offsets those counts imply, the compiled
+   indexes resolve to each source instruction's own program and accounts in
+   order, the payload is untouched, and the wire bytes are the signature
+   count, the signatures and the message. That block reads each message at
+   fixed offsets and reads the partition the counts imply. **It must not grow
+   into a second implementation of what `Tx::compile` will do** — it orders
+   nothing and derives no count, and when `Tx` lands the byte-for-byte
+   comparison replaces these shape checks rather than joining them.
+
 2. **Then `SolPay\Tx`**, with a `tests/Core/TxTest.php` whose expected values
    are hardcoded literals, for the same reason the other four suites are —
    the conformance run notices the crate moving, the literals name which

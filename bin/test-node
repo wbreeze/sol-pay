@@ -30,10 +30,22 @@ fi
 # Generated, gitignored, and derived from the *published* crate rather than
 # from this tree -- which is the point: the vectors are an outside opinion
 # about what the right answers are.
-if [ ! -f "$VECTORS" ]; then
-  echo "==> generating conformance vectors"
-  ( cd "$ROOT/php-client/vectors-gen" && cargo run --release --locked ) > "$VECTORS"
-fi
+#
+# Regenerated every run, matching bin/test-php and node-conformance.yml, which
+# has always regenerated unconditionally. The reason here is not the one in
+# bin/test-php -- this job is a loading contract and not drift control, so a
+# stale fixture would not quietly weaken what it proves. It is that both
+# scripts write and read the *same* file: once test-php regenerates and this
+# one does not, running this alone after a generator change is the remaining
+# way to check against a vector an older generator wrote, and the failure
+# arrives dressed as a loading bug. One file, one rule.
+#
+# It also self-heals a truncated fixture. The redirect below creates the file
+# before cargo writes to it, so a generator that fails mid-run leaves an empty
+# vectors.json behind; under a skip-if-present guard the next run would accept
+# that empty file and fail at json parse instead of at the generator.
+echo "==> generating conformance vectors"
+( cd "$ROOT/php-client/vectors-gen" && cargo run --release --locked ) > "$VECTORS"
 
 echo "==> node conformance"
 node "$ROOT/wasm-client/conformance/node.mjs" "$PKG" "$VECTORS"

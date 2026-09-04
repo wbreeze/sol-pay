@@ -39,10 +39,20 @@ fi
 # Generated, gitignored, and derived from the published crate rather than from
 # this tree -- which is the point: the vectors are an outside opinion about
 # what the right answers are.
-if [ ! -f "$VECTORS" ]; then
-  echo "==> generating conformance vectors"
-  ( cd "$ROOT/php-client/vectors-gen" && cargo run --release --locked ) > "$VECTORS"
-fi
+#
+# Regenerated every run, with no "skip if the file already exists" guard.
+# There was one, and it made the claim at the top of this file false: a cached
+# fixture is not an outside opinion, it is whatever the generator said the last
+# time somebody happened to delete the file. It cost a confusing failure on
+# 2026-09-04 -- new conformance checks run against a vector the *previous*
+# generator wrote, which reads as a code bug and is not one. It also meant this
+# script and php-conformance.yml were testing different things, since CI has
+# always regenerated unconditionally.
+#
+# The cost is what cargo spends deciding an already-built binary is current.
+# On a cold tree it builds, which is the build a fresh checkout owes anyway.
+echo "==> generating conformance vectors"
+( cd "$ROOT/php-client/vectors-gen" && cargo run --release --locked ) > "$VECTORS"
 
 echo "==> php conformance"
 php "$ROOT/php-client/conformance/vectors.php" "$VECTORS"

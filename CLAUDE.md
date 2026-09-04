@@ -230,15 +230,26 @@ Regenerate and re-check after touching `state.rs`, `errors.rs`, `pda.rs`, or
 `ix.rs`:
 
 ```
-cd php-client/pda-spike/vectors-gen && cargo run --release > ../php/vectors.json
-cd ../php && php verify.php vectors.json   # spike's own check: Pda/Ix only
-cd ../.. && composer test                  # PdaTest, IxTest, StateTest, ErrorTest assert the same vector
+bin/test-php                   # regenerate vectors, check src/Core against them
+cd php-client && composer test # PdaTest, IxTest, StateTest, ErrorTest
 ```
+
+`bin/test-php` replaced the three `cd` steps this used to list. It runs the
+generator when `php-client/pda-spike/php/vectors.json` is missing, then
+`php-client/conformance/vectors.php`, which checks the **package** and not
+the spike: both PDA families with bumps, the instruction data and every
+account's flags, both decoders, both error tables. The vectors are gitignored
+and `bin/clean` removes them, so deleting that file is how you force a fresh
+generate. `pda-spike/php/verify.php` still runs and still only covers the
+spike's standalone `Pda`/`Base58`.
 
 The PHPUnit tests hardcode the vector's values as literals rather than
 reading `vectors.json` at runtime — same style `PdaTest`/`IxTest` already
 used — so a drift shows up as a specific failing assertion pointing at the
-stale literal, not a missing-fixture-file error.
+stale literal, not a missing-fixture-file error. That is the complement of
+the conformance run rather than a duplicate of it: literals cannot notice the
+crate moving, and fresh vectors cannot tell you which local edit broke
+something.
 
 `php-client/pda-spike/README.md` carries a finding worth knowing before
 touching `Ed25519`: PHP's `sodium` extension exposes no ed25519 core API on

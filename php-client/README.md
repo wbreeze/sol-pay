@@ -57,10 +57,18 @@ composer install
 composer test          # vendor/bin/phpunit --testdox works the same way
 ```
 
-Requires PHP ^8.1. Not wired into `bin/build-rust`, `bin/test-rust`, or any
-CI workflow — this package has no Rust toolchain dependency and no reason to
-share theirs; see the repository root `CLAUDE.md` for why that isolation is
-deliberate rather than an oversight.
+Requires PHP ^8.1. Not wired into `bin/build-rust` or `bin/test-rust` — this
+package has no Rust toolchain dependency and no reason to share theirs; see
+the repository root `CLAUDE.md` for why that isolation is deliberate rather
+than an oversight. It has its own entry points instead: `bin/test-php` and
+the `php conformance` workflow, both under "Drift control" below.
+
+That `^8.1` is the library's floor, not the tooling's. PHPUnit 11 pulls a
+`sebastian/*` tree requiring php >=8.2, so a plain `composer install` cannot
+resolve on 8.1 at all. `composer install --no-dev` can, because this package
+has **no runtime dependencies** — that is how CI tests the floor, and how a
+consumer on 8.1 would install it, since consumers do not take dev
+dependencies either.
 
 ## Drift control
 
@@ -85,10 +93,22 @@ Regenerate and re-run after touching `state.rs`, `errors.rs`, `pda.rs`, or
 `ix.rs` on the Rust side:
 
 ```
-cd pda-spike/vectors-gen && cargo run --release > ../php/vectors.json
-cd ../php && php verify.php vectors.json   # the spike's own check: Pda/Ix only
-cd ../.. && composer test                  # the four PHPUnit suites above
+../bin/test-php    # regenerate the vectors, then check src/Core against them
+composer test      # the four PHPUnit suites above, against their literals
 ```
+
+Those are two different questions and neither replaces the other. Frozen
+literals name a local regression precisely and cannot notice the crate
+moving; freshly generated vectors notice the crate moving and would not tell
+you which of your own edits broke something.
+
+`conformance/vectors.php` is what `bin/test-php` runs, and it checks **this
+package** rather than the spike: both PDA families with their bumps, the
+`meter_and_settle` data and every account's pubkey and flags, `Site::decode`,
+`Contract::decode`, and both error tables. The `php conformance` workflow
+runs it on every push that touches this directory or the program, on PHP 8.1
+and 8.5. `pda-spike/php/verify.php` still exists and still works, but it
+checks the spike's standalone `Pda`/`Base58` — not what ships.
 
 `Preflight` and `Units` are pure arithmetic with no on-chain bytes to
 cross-check; their tests mirror `wasm-client`'s own `#[cfg(test)]` modules

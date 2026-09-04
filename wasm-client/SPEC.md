@@ -128,12 +128,33 @@ and the `node conformance` workflow. It is not §8.1's kind of exposure. Node
 runs the same wasm binary the browser runs and cannot diverge from it; what
 could break is the loading contract, silently, in a release of a tool.
 
-One remedy is **undecided**, named here so that not having chosen is visible
-rather than silent. A **sidecar** with a documented HTTP interface would reach
-any language at all, at the cost of a deployment unit for people who wanted a
-package. What it exposes is a signing oracle, so its trust boundary -- a Unix
-socket and file permissions, or mTLS -- would be part of this library rather
-than something each integrator invents.
+The remedy is a **sidecar** with a documented HTTP interface: one deployment
+unit that reaches any language at all, for the people who would rather have
+that than a package. This section carried it as explicitly undecided from the
+day it was written; it is **decided 2026-09-04**, and what decided it was not
+the unserved-language list below, which has not moved. It was that a PHP site
+authority needs transaction assembly it cannot get honestly from any existing
+package, and that the demonstrator needs somewhere for a site authority key
+to live. Those are one object: a sidecar is a signing oracle, so it is
+simultaneously the reach answer and the custody answer, and deciding either
+of them alone would have answered the same question twice, differently.
+
+What is decided is that it gets built, not what it is. Its trust boundary --
+a Unix socket and file permissions, or mTLS -- belongs to this library rather
+than to each integrator's invention, and is not designed yet; neither is
+whether it lives in this repository -- and if it ever drags too many releases
+along behind it, splitting it into its own code base stays available, which
+is the same remedy `php-client/README.md` already records for Packagist's
+repo-wide tags.
+
+What the sidecar does not reach is PHP. A sidecar is the answer for a
+language with no package; PHP has one, and one whose zero runtime
+dependencies and 8.1 floor are the reason it installs where it has to, so
+**PHP reaches transaction assembly through `SolPay\Tx` instead** -- decided
+2026-09-04, `php-client/README.md`, "Planned: transaction assembly". The
+consequence is deliberate and is not softened here: this library keeps a
+second implementation of the encoding, §8.1's objection included, and §8.1
+names the machinery that has to carry it.
 
 What is left unserved by a Rust crate, a Node-loadable bundle and a PHP port
 is Ruby, Java, Scala, ASP.NET and Python: together roughly a fifth of the
@@ -679,6 +700,22 @@ session, and the page.
 This is the boundary integrators get wrong, so it is stated here and repeated
 in the README.
 
+One sentence here is under amendment, and the reason is worth stating rather
+than quietly fixing. "The integrator owns the connection" cost nothing for
+every consumer that existed when it was written: Rust has
+`solana-transaction`, the Node tier has `@solana/web3.js`, and in the browser
+the wallet compiles the message and the question never arises. For a PHP
+server it means hand-writing a wire encoding, because nothing in sol-pay
+compiles a legacy transaction message in any language -- `core::tx` pairs
+instructions in the order the program requires, which is ordering and not
+wire format. The sentence did not change; the population it applies to did.
+When `SolPay\Tx` lands -- decided, not yet built (§3.1) -- "it builds
+instructions and decodes bytes" becomes "it builds instructions and the
+message that carries them, and decodes bytes" -- and every verb above
+survives it unchanged: still no signing, no signature verification, no
+sign-in message construction, no RPC, no retries, no storage, no routing, no
+rendering, no session management.
+
 ## 8. Drift control
 
 Every claim this document makes about the program is pinned by a test in
@@ -734,3 +771,18 @@ expected values as literals, which is the right shape for naming a local
 regression and useless against the crate moving underneath it -- frozen
 literals agree with themselves. The two run for different reasons and neither
 replaces the other.
+
+**One part of the port has no check at all, and it is the part §8 calls the
+point of the exercise.** The preflight predicates are pinned against real
+LiteSVM behaviour in `pay-on-chain/tests`; `php-client`'s copies of them are
+not, and `Preflight`'s own class doc says so -- arithmetic duplicated from
+the program and kept in step by hand. Vectors cannot close this. Preflight
+has no chain-serialized bytes to compare, which is why `vectors-gen` emits
+none for it, and its PHPUnit tests mirror the Rust `#[cfg(test)]` modules
+test-for-test, which checks the port against the port's reading of the
+program rather than against the program. The demonstrator will be the first
+thing running these predicates against a real devnet, where a disagreement
+surfaces as a transaction that fails after preflight said it would not --
+the exact failure named above as worse than having no predicate. Closing it
+is open work; `php-client/README.md`, "Drift control", carries what is known
+about how.

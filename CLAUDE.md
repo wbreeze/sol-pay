@@ -223,8 +223,18 @@ than copied:
 
 `Preflight` and `Units` are pure arithmetic with no chain-serialized bytes to
 cross-check; their PHPUnit tests mirror wasm-client's own `#[cfg(test)]`
-modules test-for-test instead, which is the appropriate level of rigor for
-functions with no encoding to get wrong.
+modules test-for-test instead. For `Units` that is the appropriate level of
+rigor. For `Preflight` it is not: the Rust predicates are pinned against real
+LiteSVM behaviour in `pay-on-chain/tests` and these copies are pinned against
+nothing, so this is the one part of the package kept in step by hand. Open
+work, with the options recorded — `php-client/README.md`, "Drift control",
+and SPEC §8.1.
+
+Two more open items live in `php-client/README.md` under "Planned:
+transaction assembly (`SolPay\Tx`)": a PHP site authority cannot compile the
+transaction message that carries an `Ix` instruction, and the vectors for one
+must exist before any encoder does. Read that section before adding anything
+to `src/Core` beyond the table above.
 
 Regenerate and re-check after touching `state.rs`, `errors.rs`, `pda.rs`, or
 `ix.rs`:

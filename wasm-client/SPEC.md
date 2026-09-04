@@ -108,6 +108,24 @@ The integrator's obligation is therefore a single sentence: *keep a mapping
 from your viewer to a wallet address, and hand us the address.* Everything the
 library does starts from there.
 
+**With one precondition, which is easy to miss.** That sentence holds while
+payers use their associated token account -- the one wallets surface, and the
+one any ordinary onboarding produces. It is not what the program requires.
+`open_contract`, `renew_contract` and `meter_and_settle` constrain
+`payer_token_account` only by its owner and its mint, so a payer may hold
+several token accounts for one mint, and `Contract` does not record which one a
+contract was opened against.
+
+That latitude is what lets a payer hold concurrent contracts with more than one
+site: one delegate per token account rather than one per wallet.
+A site that supports it stores a second thing per viewer, the token account,
+because `meter_and_settle` takes it as an account and nothing derives it. The
+mapping becomes *viewer to address and token account*.
+
+So the claim above is a claim about the default, not about the program. The
+objection this answers, and what the extra account costs a payer, are in
+`README.md` under "Can a payer be metered by more than one site at once?".
+
 ### 4.2 What this replaces
 
 Earlier revisions specified a "bump slug": a random token in the URL path,

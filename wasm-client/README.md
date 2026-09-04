@@ -143,12 +143,14 @@ crate is a pure function of its arguments.
 contract PDA as delegate for the full limit. They fail rather than trust the
 client to have done it.
 
-**A token account has exactly one delegate.** A payer therefore holds one
-active contract per token account. The site is part of the contract PDA seeds,
-so several sites are possible in principle, but a payer wanting contracts with
-two sites at once needs a separate token account for each. If multi-site
-turns out to matter, the alternative is a per-site escrow the payer tops up,
-which trades that limit for funds leaving the wallet early.
+**A token account has exactly one delegate.** `approve` replaces rather than
+adds. That is the SPL account layout, identical under Token-2022, and not
+something this program chose. A payer therefore holds one active contract per
+token account, and a second site's `approve` silently repoints the delegate --
+the first site's next settle then fails inside the token program, at the
+transfer, rather than at `open_contract` where the delegate is checked. The
+limit is per token account and not per wallet, and that difference is the whole
+answer to the question below.
 
 **The limit is trust, not pacing.** `meter_and_settle` takes a `page_views`
 count and is signed by the site authority alone. The payer is not present and
@@ -178,6 +180,62 @@ avoid exactly that kind of baggage.
 
 Extract the error code, discard the rest, and think before forwarding raw
 transaction logs to a third-party service.
+
+## Can a payer be metered by more than one site at once?
+
+Yes. It is the first thing anyone evaluating this asks, and the answer lives in
+the account constraints rather than in the prose, so it is worth stating here.
+
+Nothing in this program requires the associated token account. `open_contract`,
+`renew_contract` and `meter_and_settle` each constrain `payer_token_account` by
+exactly two things:
+
+```rust
+constraint = payer_token_account.owner == payer.key(),
+constraint = payer_token_account.mint  == site.mint,
+```
+
+Any token account the payer owns for the site's mint is acceptable, and a
+wallet may own arbitrarily many token accounts for one mint -- the ATA is
+merely the canonical one. So one token account per site gives one delegate per
+site, and a payer can hold as many concurrent contracts as they have token
+accounts. `Contract` does not record which account was used, either, so a
+contract is not bound to one: any account of the payer's, for the site's mint,
+that delegates to the contract PDA will settle.
+
+What that costs, stated so nobody discovers it later:
+
+- **Rent.** A plain SPL token account is 165 bytes, roughly 0.002 SOL,
+  recoverable on close. Token-2022 accounts carrying extensions are larger.
+- **Split balances.** Balance is per account, not per wallet, so the payer
+  decides in advance how much to park with each site. That is a second
+  budgeting decision on top of the limit, and a worse one, because most wallet
+  interfaces do not show it.
+- **Wallet support.** Wallets surface the ATA. Auxiliary token accounts for the
+  same mint are second-class nearly everywhere, and creating and funding one is
+  not a viable onboarding step for an ordinary reader today.
+- **A second thing for the site to store.** The payer's wallet address is the
+  only input this library needs *while everyone uses the ATA*. A site that
+  supports auxiliary accounts must also store which token account each payer
+  uses, because `meter_and_settle` takes it as an account and the contract does
+  not record it.
+
+So the honest summary is that the constraint is per token account rather than
+per wallet, the workaround exists on chain today, and it is not yet practical
+in an ordinary reader's wallet. Both halves need saying: the first alone
+over-sells, the second alone is the objection.
+
+Removing the friction instead of routing around it would mean changing the
+design. The two shapes that would are worth naming, so that the current one is
+visibly a choice rather than an oversight. A **per-payer delegate PDA**, seeded
+`[b"delegate", payer]` instead of being the per-site contract PDA, would let a
+single approval on the payer's ATA cover every site on the deployment, each
+site still bounded on chain by its own `Contract.limit` -- at the cost of a
+shared allowance, so a site that draws hard leaves less for the others, and the
+payer's total exposure becomes the allowance rather than the sum of the limits
+they agreed to. Or a **per-site escrow** the payer tops up, which removes the
+delegate question entirely and gives up the property the whole design rests on:
+that the money stays in the payer's wallet until it is spent.
 
 ## Publishing
 

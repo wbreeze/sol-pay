@@ -1,11 +1,7 @@
 # SolPay
 
-This project will offer a pay-as-you-go capability using the Solana
+This project offers a pay-as-you-go capability using the Solana
 block chain ecosystem.
-
-Note: This is a work in progress. Do try to implement. Do not use as
-a reference code base or example. Do not expect it to work.
-
 
 ## What is here
 
@@ -14,18 +10,15 @@ Two Rust crates, and one PHP port:
 - `pay-on-chain` — the metering program, built with the
   [Anchor framework][anchor], and its LiteSVM test suite.
 - `wasm-client` — the client library a site integrates, published as a crate
-  and as a browser bundle. See `wasm-client/SPEC.md`.
+  and as a browser bundle. The same bundle runs on a Node server, so the
+  server half of an integration does not have to be Rust either. See
+  `wasm-client/SPEC.md`.
 - `php-client` — a server-side PHP client covering the site-signed half of
   `wasm-client`'s API: PDA derivation, instruction building, account
   decoding, preflight, and error mapping, for a PHP server with no Rust
   toolchain and no WASM runtime. Packaged as a Composer library, not yet
   published. See `php-client/README.md`, and `wasm-client/SPEC.md` §3.1 for
   why a port exists at all.
-
-There is no front end. A Next.js application and its AWS Amplify deployment
-configuration used to live here; both were removed once the client library
-became the thing this repository ships. Anything that replaces them will be
-built on `wasm-client`, in WebAssembly rather than JavaScript.
 
 [anchor]: https://www.anchor-lang.com/docs
 
@@ -68,10 +61,34 @@ The WASM client lives in `wasm-client`. Its core is plain Rust with no browser
 dependency, wrapped in a thin `wasm-bindgen` layer; see `wasm-client/README.md`.
 
 `build-rust` and `test-rust` pass `--locked`, so they build the versions in the
-committed `Cargo.lock` files or fail rather than re-resolving. `.github/workflows/rust.yml`
-runs the same locked build and both suites on push; `dependency-drift.yml`
-re-resolves from scratch weekly, so an upstream release that breaks the version
-ranges shows up as a red scheduled run instead of a surprise.
+committed `Cargo.lock` files or fail rather than re-resolving.
+`.github/workflows/rust.yml` runs the same locked build and both suites on
+push; `dependency-drift.yml` re-resolves from scratch weekly, so an upstream
+release that breaks the version ranges shows up as a red scheduled run instead
+of a surprise.
+
+Two more scripts check the other two ways this library gets consumed. They
+answer different questions, and the difference is worth keeping straight:
+
+- `./bin/test-node` loads the browser bundle under Node and exercises it.
+  A site's server does not have to be Rust: the npm package already runs
+  there, with no second build target and no second package, provided `init()`
+  is handed the wasm bytes rather than left to fetch them. That last part is a
+  property of `wasm-pack`'s generated glue rather than of anything here, which
+  is why it is tested instead of asserted. See `wasm-client/SPEC.md` §3.1.
+- `./bin/test-php` checks `php-client` against vectors generated from the
+  *published* crate. This one is drift control: the PHP package is a second
+  implementation of the same encoding, and a port that disagrees does not fail
+  cleanly — it builds a plausible transaction that does the wrong thing, and
+  then someone signs it. Node runs the same wasm binary the browser runs and
+  cannot drift that way; PHP can. See SPEC §8.1.
+
+Each builds or generates whatever it finds missing, so a first run of either
+wants `cargo` for the vector generator, `bin/test-node` wants `wasm-pack`, and
+`bin/test-php` wants PHP and Composer. `node-conformance.yml` and
+`php-conformance.yml` run them on push across more than one runtime — Node 22
+and 24, PHP 8.1 and 8.5, where 8.1 is the floor `php-client/composer.json`
+declares and so the one worth checking.
 
 ## Payment model
 

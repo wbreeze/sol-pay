@@ -228,8 +228,16 @@ right rather than regrettable. If a *later* push is refused, do not force it.
 then in a clone of the split repository -- NOT here, a tag here would claim to
 version pay-on-chain and wasm-client too:
 
-  git tag v0.1.0
-  git push origin v0.1.0
+  git pull --ff-only                       # the clone is stale; the push above
+                                           # moved the mirror, not it
+  git tag vX.Y.Z $new
+  git push origin vX.Y.Z
+
+The sha is this split, printed so the tag cannot land on whatever the clone
+happened to be sitting on -- which is the one mistake this step invites, and it
+produces a release identical to the previous one rather than an error.
+--ff-only rather than a plain pull: the clone must never diverge, so it should
+refuse rather than quietly write a merge commit into the mirror.
 
 Packagist picks the tag up through the GitHub hook. First time only, it also
 needs the repository submitted at https://packagist.org/packages/submit

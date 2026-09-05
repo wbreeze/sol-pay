@@ -475,6 +475,7 @@ this package. Add it as a remote here, **over SSH**:
 
 ```
 git remote add split git@github.com:<owner>/<mirror>.git
+git config remote.split.tagOpt --no-tags
 git fetch split
 ```
 
@@ -488,6 +489,14 @@ happened, `git remote set-url split git@github.com:<owner>/<mirror>.git` fixes
 it. The `git fetch` is what gives `bin/split-php-client` a
 `refs/remotes/split/master` to check against; without it the script says so
 and checks nothing.
+
+`tagOpt --no-tags` matters more than it looks. A default fetch also takes any
+tags reachable from what it fetched, so once the mirror has releases, one
+`git fetch split` would copy `v0.1.0`, `v0.1.1`, … straight into *this*
+repository's tag namespace — the exact thing the split exists to prevent, and
+one `git push --tags origin` away from claiming to version `pay-on-chain` and
+`wasm-client`. Setting it once shuts that off permanently. If tags have
+already arrived here, `git tag -d` them; the mirror keeps the real ones.
 
 Then submit *that* repository's URL at <https://packagist.org/packages/submit>,
 and enable the GitHub hook Packagist offers so later tags are picked up without
@@ -533,9 +542,26 @@ git push split php-client-release:master
 **Then, in a clone of the split repository — not here:**
 
 ```
-git tag v0.1.0
-git push origin v0.1.0
+git pull --ff-only                # the push above moved the mirror, not this clone
+git tag vX.Y.Z <the sha bin/split-php-client printed>
+git push origin vX.Y.Z
 ```
+
+**Pull first, and tag the sha the script printed.** The clone does not know
+about the push — it went from the other repository straight to the mirror —
+so its `master` is wherever it was after the last release. Tagging a stale
+`HEAD` does not fail: it produces a release whose tree is byte-identical to the
+previous one, published under a new number, and nothing tells you until you
+compare them. That is not hypothetical; `v0.1.1` here is exactly that, the same
+commit as `v0.1.0`, and `v0.1.2` is the release it was meant to be. Naming the
+sha explicitly is what makes the step independent of the clone's state —
+`bin/split-php-client` prints it as `synthesized <sha>` and again in the
+instructions it ends with.
+
+`--ff-only` rather than a plain `git pull`: this clone must never diverge from
+the synthesized history, so a pull that cannot fast-forward should refuse
+rather than quietly write a merge commit — which would be a commit made in the
+split repository, the one thing that breaks the arrangement for good.
 
 The tag belongs there and only there. A tag in this repository would claim to
 version `pay-on-chain` and `wasm-client` as well, which is the whole problem

@@ -1,5 +1,27 @@
 # sol-pay-client (PHP)
 
+> ## Prologue
+>
+> **This file is read in two repositories, and it is the same file.**
+>
+> Find package development in the `php-client/` directory of the repository,
+> [wbreeze/sol-pay](https://github.com/wbreeze/sol-pay).  Find a distribution
+> only mirror at,
+> [wbreeze/sol-pay-php](https://github.com/wbreeze/sol-pay-php).
+> Packagist publishes from the mirror.  The mirror, `wbreeze/sol-pay-php`, is a
+> projection, never a place to work.  The script, `bin/split-php-client` in the
+> `wbreeze/sol-pay` repository synthesizes its history from this directory. Any
+> commit made within `wbreeze/sol-pay-php` would prevent the next split from
+> fast-forwarding — and would be erased regardless, because the synthesized
+> tree *is* this directory's contents and holds nothing else.
+>
+> In short, make any and all changes in the `php-client` directory of the
+> `wbreeze/sol-pay` repository.
+>
+> See "Publishing" below.
+
+## Description
+
 A server-side PHP port of `wasm-client`'s core, for a site whose server has no
 Rust toolchain and no WASM runtime. Packaged as `wbreeze/sol-pay-client` on
 Composer; not published anywhere. See `wasm-client/SPEC.md` for the design
@@ -439,12 +461,32 @@ prints the remaining commands. It does not push, tag, or publish: those leave
 the machine, need personal credentials, and are hard to take back — the same
 reasoning that leaves `cargo publish` unscripted.
 
-**One-time setup.** Create an empty public repository for the split — it holds
-only this package. Add it as a remote here (`git remote add split <url>`).
-Then submit *that* repository's URL at
-<https://packagist.org/packages/submit>, and enable the GitHub hook Packagist
-offers so later tags are picked up without resubmitting. Nothing is ever
-committed in the split repo by hand; see below.
+**One-time setup.** Create a public repository for the split — it holds only
+this package. Add it as a remote here (`git remote add split <url>`). Then
+submit *that* repository's URL at <https://packagist.org/packages/submit>, and
+enable the GitHub hook Packagist offers so later tags are picked up without
+resubmitting. Nothing is ever committed in the split repo by hand; see below.
+
+**The first push is the one exception, and it needs `--force`.** A repository
+created through GitHub's own form is not empty — the "Initial commit" it makes
+for you, and anything added to it since, are commits that exist nowhere in
+this repository, so the synthesized history shares no ancestor with them and
+the push is refused as a non-fast-forward. Overwriting them is right rather
+than regrettable: the split tree is exactly `php-client/`'s contents, so a
+hand-written `README.md` there would be replaced by this file on the first
+successful push anyway, and a note that belongs to the mirror belongs at the
+top of this file instead, where every split carries it forward.
+
+```
+git push --force-with-lease=master:<the sha the mirror is on now> split php-client-release:master
+```
+
+`--force-with-lease` rather than `--force` so it still refuses if the mirror
+has moved since you looked — the thing worth catching is somebody having
+committed there, which is the one failure this whole arrangement is trying to
+avoid. Once, at setup, and never again: every later push is a fast-forward,
+and one that is not means the history diverged and needs working out, not
+forcing.
 
 **Per release, from the root of this repository:**
 

@@ -32,6 +32,9 @@ set -euo pipefail
 
 PREFIX="php-client"
 BRANCH="php-client-release"
+# The remote the mirror lives on, checked offline below. Named, not asked for,
+# because a name is all the tracking ref needs; the push itself stays manual.
+REMOTE="${SPLIT_REMOTE:-split}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -80,6 +83,33 @@ if GIT_OPTIONAL_LOCKS=0 git show-ref --verify --quiet "refs/heads/$BRANCH"; then
 else
   git branch "$BRANCH" "$new"
   echo "    created $BRANCH"
+fi
+
+# --- would the push actually land? ---------------------------------------
+# Offline on purpose: this reads the remote-tracking ref a previous fetch left
+# behind and never touches the network, so the promise that nothing leaves the
+# machine holds. A stale ref is why this warns rather than fails.
+#
+# Worth checking here because the local fast-forward test above compares this
+# split against the *last* split, and says nothing about what the mirror is
+# actually on. The two disagree exactly once in the normal case -- the first
+# push, over whatever commits the mirror was created with -- and after that a
+# disagreement means somebody committed there.
+if GIT_OPTIONAL_LOCKS=0 git show-ref --verify --quiet "refs/remotes/$REMOTE/master"; then
+  remote_head="$(GIT_OPTIONAL_LOCKS=0 git rev-parse "refs/remotes/$REMOTE/master")"
+  if [ "$remote_head" = "$new" ]; then
+    echo "    $REMOTE/master is already at this split (as of the last fetch)"
+  elif GIT_OPTIONAL_LOCKS=0 git merge-base --is-ancestor "$remote_head" "$new"; then
+    echo "    $REMOTE/master fast-forwards to this split (as of the last fetch)"
+  else
+    echo "    NOTE: $REMOTE/master (${remote_head:0:12}) is not an ancestor of this"
+    echo "    split, so a plain push will be refused. Expected exactly once, for the"
+    echo "    commits the mirror was created with; see README \"Publishing\". If this"
+    echo "    is not the first push, somebody committed in the mirror -- work out"
+    echo "    what happened before forcing anything."
+  fi
+else
+  echo "    no $REMOTE/master locally; add the remote and fetch to have this checked"
 fi
 
 # --- is what came out actually publishable? ------------------------------
@@ -185,9 +215,15 @@ cat <<EOF
 
 $BRANCH is ready. Nothing has left this machine.
 
-To publish, from this repository, with SPLIT_REMOTE set to the split repo:
+To publish, from this repository:
 
-  git push \$SPLIT_REMOTE $BRANCH:master
+  git push $REMOTE $BRANCH:master
+
+That is every push but the first. The first one has to go over whatever
+commits the mirror was created with, which share no ancestor with this
+history, so it is refused until forced -- once, with --force-with-lease. See
+php-client/README.md "Publishing" for the form and for why overwriting them is
+right rather than regrettable. If a *later* push is refused, do not force it.
 
 then in a clone of the split repository -- NOT here, a tag here would claim to
 version pay-on-chain and wasm-client too:

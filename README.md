@@ -45,11 +45,14 @@ Four scripts wrap the Rust side:
   `wasm-client/pkg` and `pay-on-chain/.anchor`. Takes the same two flags. It
   leaves `test-ledger` alone: the local validator's chain state is not build
   output.
-- `./bin/update-locks` moves both `Cargo.lock` files to the newest versions
+- `./bin/update-locks` moves all three `Cargo.lock` files to the newest versions
   inside the ranges the manifests already allow, prints what moved, and then
-  runs `test-rust` — it does not ask you to. Takes the same two flags. This is
-  the deliberate answer to a dependency-drift report; it never crosses a major
-  boundary, so adopting a newer major stays a manifest edit and a decision.
+  runs whichever suite builds from them — it does not ask you to. Takes
+  `--program`, `--client` or `--vectors`; the third is `php-client/vectors-gen`,
+  which is proved by `test-php` rather than `test-rust` because nothing in the
+  Rust suites builds it. This is the deliberate answer to a dependency-drift
+  report; it never crosses a major boundary, so adopting a newer major stays a
+  manifest edit and a decision.
 
 The program tests run against [LiteSVM][litesvm], an in-process SVM, so they
 need no validator -- but they do load `target/deploy/pay_on_chain.so`, so the
@@ -82,6 +85,12 @@ answer different questions, and the difference is worth keeping straight:
   cleanly — it builds a plausible transaction that does the wrong thing, and
   then someone signs it. Node runs the same wasm binary the browser runs and
   cannot drift that way; PHP can. See SPEC §8.1.
+- `./bin/split-php-client` produces the read-only repository Packagist
+  publishes `php-client` from, and proves it is publishable — Composer needs
+  `composer.json` at a repository root and a tag that *is* the version, and a
+  tag here would claim to version the other two artifacts as well. It verifies
+  and stops: pushing, tagging and publishing leave the machine and stay manual,
+  the same as `cargo publish`. See `php-client/README.md`, "Publishing".
 
 Each builds or generates whatever it finds missing, so a first run of either
 wants `cargo` for the vector generator, `bin/test-node` wants `wasm-pack`, and

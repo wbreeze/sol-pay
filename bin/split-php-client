@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+#
+# Produce the read-only repository Packagist publishes from, and prove it is
+# publishable. Stops before anything leaves this machine.
+#
+#   bin/split-php-client
+#
+# Composer's VCS driver requires composer.json at a repository *root* and
+# parses a tag only when the tag *is* the version -- so `php-client-v0.1.0`
+# here is invisible to it, and a bare `v0.1.0` here would claim to version
+# pay-on-chain and wasm-client too. The standard answer, and Symfony's and
+# Laravel's, is a split repository that contains only the package. This makes
+# that split.
+#
+# Why it is not a one-time task: the split repo is a projection of a moving
+# source, so every release re-runs this to pick up what changed. That is cheap
+# because `git subtree split` is deterministic -- the same commits synthesize
+# to the same SHAs, so re-running extends the branch rather than rewriting it
+# and the push is a fast-forward. This script checks that property explicitly
+# rather than trusting it.
+#
+# The one way to break it: never commit *in* the split repo. It is
+# write-only-from-here. A commit made there diverges from the synthesized
+# history and the next split stops fast-forwarding.
+#
+# What this deliberately does NOT do: push, tag, or publish. Those leave the
+# machine, need personal credentials, and are hard to take back -- the same
+# reasoning that leaves `cargo publish` unscripted (wasm-client/README.md).
+# It prints them for you to run.
+
+set -euo pipefail
+
+PREFIX="php-client"
+BRANCH="php-client-release"
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+command -v git >/dev/null 2>&1 || { echo "error: git not found." >&2; exit 1; }
+
+# Only the prefix matters: `git subtree split` reads committed history, so
+# uncommitted work here would silently not be in the package.
+if [ -n "$(GIT_OPTIONAL_LOCKS=0 git status --porcelain -- "$PREFIX")" ]; then
+  echo "error: $PREFIX has uncommitted changes; the split would not include them." >&2
+  GIT_OPTIONAL_LOCKS=0 git status --short -- "$PREFIX" >&2
+  exit 1
+fi
+
+# A package nobody ran the suites against is not publishable. Rare enough that
+# the minute is worth it, and this is the last point where a failure is free.
+echo "==> bin/test-php"
+"$ROOT/bin/test-php"
+echo
+echo "==> composer test"
+( cd "$ROOT/$PREFIX" && composer test )
+
+echo
+echo "==> git subtree split --prefix=$PREFIX"
+echo "    from $(GIT_OPTIONAL_LOCKS=0 git rev-parse --abbrev-ref HEAD) at $(GIT_OPTIONAL_LOCKS=0 git rev-parse --short HEAD)"
+# -q, or subtree's progress counter writes a bare \r into the output and the
+# next line prints on top of it.
+new="$(git subtree split --prefix="$PREFIX" -q | tail -1)"
+echo "    synthesized $new"
+
+if GIT_OPTIONAL_LOCKS=0 git show-ref --verify --quiet "refs/heads/$BRANCH"; then
+  old="$(GIT_OPTIONAL_LOCKS=0 git rev-parse "$BRANCH")"
+  if [ "$old" = "$new" ]; then
+    echo "    $BRANCH is already there; nothing has touched $PREFIX since the last split"
+  elif GIT_OPTIONAL_LOCKS=0 git merge-base --is-ancestor "$old" "$new"; then
+    git update-ref "refs/heads/$BRANCH" "$new"
+    echo "    $BRANCH fast-forwarded ${old:0:12} -> ${new:0:12}"
+  else
+    echo >&2
+    echo "error: $BRANCH would not fast-forward to $new." >&2
+    echo "The synthesized history diverged, which normally means either this" >&2
+    echo "repository's history was rewritten, or somebody committed in the" >&2
+    echo "split repository. Do not force-push over it; work out which first." >&2
+    exit 1
+  fi
+else
+  git branch "$BRANCH" "$new"
+  echo "    created $BRANCH"
+fi
+
+# --- is what came out actually publishable? ------------------------------
+# Read-only: the tree is unpacked to a scratch directory, never a worktree,
+# so nothing here can touch the repository.
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+git archive "$new" | tar -x -C "$work"
+
+echo
+echo "==> checking the split root"
+fail=0
+say() { printf '    %s %s\n' "$1" "$2"; }
+
+for f in composer.json LICENSE-MIT LICENSE-APACHE; do
+  if [ -L "$work/$f" ]; then
+    # Why the licences are copies and not symlinks: git carries the link
+    # verbatim, so one pointing out of the prefix arrives here dangling.
+    say "FAIL" "$f is a symlink -> $(readlink "$work/$f") (dangling once split)"
+    fail=1
+  elif [ -f "$work/$f" ]; then
+    say "ok  " "$f"
+  else
+    say "FAIL" "$f is missing from the package root"
+    fail=1
+  fi
+done
+
+if [ -d "$work/src/Core" ]; then
+  say "ok  " "src/Core"
+else
+  say "FAIL" "src/Core is missing"
+  fail=1
+fi
+
+leaked=0
+for d in wasm-client pay-on-chain bin .github; do
+  if [ -e "$work/$d" ]; then
+    say "FAIL" "$d leaked into the package"
+    leaked=1
+    fail=1
+  fi
+done
+[ "$leaked" = 0 ] && say "ok  " "nothing from the rest of the repository leaked"
+
+# Packagist derives the version from the tag; a hardcoded one conflicts with
+# it and Composer then cannot determine a version at all.
+if grep -q '"version"' "$work/composer.json"; then
+  say "FAIL" 'composer.json declares "version"; Packagist takes it from the tag'
+  fail=1
+else
+  say "ok  " 'composer.json leaves the version to the tag'
+fi
+
+if command -v composer >/dev/null 2>&1; then
+  if ( cd "$work" && composer validate --strict --no-check-all --quiet ); then
+    say "ok  " "composer validate --strict"
+  else
+    say "FAIL" "composer validate --strict"
+    fail=1
+  fi
+else
+  say "??  " "composer not on PATH; skipped composer validate"
+fi
+
+echo
+echo "    what the package would ship, top level:"
+( cd "$work" && ls -A | sed 's/^/      /' )
+
+if [ "$fail" != 0 ]; then
+  echo >&2
+  echo "The split is on $BRANCH but is not publishable; fix the above first." >&2
+  exit 1
+fi
+
+cat <<EOF
+
+$BRANCH is ready. Nothing has left this machine.
+
+To publish, from this repository, with SPLIT_REMOTE set to the split repo:
+
+  git push \$SPLIT_REMOTE $BRANCH:master
+
+then in a clone of the split repository -- NOT here, a tag here would claim to
+version pay-on-chain and wasm-client too:
+
+  git tag v0.1.0
+  git push origin v0.1.0
+
+Packagist picks the tag up through the GitHub hook. First time only, it also
+needs the repository submitted at https://packagist.org/packages/submit
+EOF

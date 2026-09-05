@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
 #
-# Move both Cargo.lock files to the newest versions inside the ranges their
-# Cargo.toml files already allow, then prove the result builds and passes.
+# Move all three Cargo.lock files to the newest versions inside the ranges
+# their Cargo.toml files already allow, then prove the result builds and passes.
 #
-#   bin/update-locks             both crates
+#   bin/update-locks             all three crates
 #   bin/update-locks --program   just pay-on-chain
 #   bin/update-locks --client    just wasm-client
+#   bin/update-locks --vectors   just php-client/vectors-gen
+#
+# There are three, not two. The vector generator carries its own lock because
+# it is its own crate, and it is the one that pulls `sol-pay-client` from
+# crates.io rather than from this tree -- so it is a drift surface in its own
+# right, and the one place `cargo update` here can pick up a newly *published*
+# version of our own client. It is verified by bin/test-php rather than
+# bin/test-rust, since nothing in the Rust suites builds it.
 #
 # This is the deliberate answer to a dependency-drift report. It never crosses
 # a major boundary -- `cargo update` will not -- so a newer major sitting
@@ -22,11 +30,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 want_program=1
 want_client=1
+want_vectors=1
 case "${1:-}" in
-  --program) want_client=0 ;;
-  --client)  want_program=0 ;;
+  --program) want_client=0;  want_vectors=0 ;;
+  --client)  want_program=0; want_vectors=0 ;;
+  --vectors) want_program=0; want_client=0 ;;
   "")        ;;
-  *) echo "usage: $(basename "$0") [--program|--client]" >&2; exit 2 ;;
+  *) echo "usage: $(basename "$0") [--program|--client|--vectors]" >&2; exit 2 ;;
 esac
 
 # The whole value here is being able to read what moved. Start from a clean
@@ -52,6 +62,11 @@ if [ "$want_program" = 1 ]; then
   ( cd "$ROOT/pay-on-chain" && cargo update )
 fi
 
+if [ "$want_vectors" = 1 ]; then
+  echo "==> cargo update (php-client/vectors-gen)"
+  ( cd "$ROOT/php-client/vectors-gen" && cargo update )
+fi
+
 echo
 echo "==> what moved"
 if ! ( cd "$ROOT" && git diff --stat -- '*/Cargo.lock' | grep -q . ); then
@@ -61,12 +76,29 @@ if ! ( cd "$ROOT" && git diff --stat -- '*/Cargo.lock' | grep -q . ); then
 fi
 ( cd "$ROOT" && git diff --stat -- '*/Cargo.lock' )
 
-echo
-echo "==> bin/test-rust"
-if ! "$ROOT/bin/test-rust"; then
+# Each lock is proved by whatever actually builds from it. bin/test-rust
+# builds the program and the client; it never touches the vector generator,
+# which bin/test-php runs -- and which now regenerates the vectors on every
+# run, so it exercises the updated lock rather than a cached artifact.
+failed=""
+
+if [ "$want_program" = 1 ] || [ "$want_client" = 1 ]; then
+  echo
+  echo "==> bin/test-rust"
+  "$ROOT/bin/test-rust" || failed="bin/test-rust"
+fi
+
+if [ "$want_vectors" = 1 ] && [ -z "$failed" ]; then
+  echo
+  echo "==> bin/test-php"
+  "$ROOT/bin/test-php" || failed="bin/test-php"
+fi
+
+if [ -n "$failed" ]; then
   echo >&2
-  echo "The updated locks do not pass. They are left in place on purpose --" >&2
-  echo "the versions that broke it are the evidence. To see what changed:" >&2
+  echo "The updated locks do not pass ($failed). They are left in place on" >&2
+  echo "purpose -- the versions that broke it are the evidence. To see what" >&2
+  echo "changed:" >&2
   echo "  git diff -- '*/Cargo.lock' | grep -E '^[+-](name|version)'" >&2
   echo "To put them back:" >&2
   echo "  git checkout -- '*/Cargo.lock'" >&2
@@ -74,4 +106,4 @@ if ! "$ROOT/bin/test-rust"; then
 fi
 
 echo
-echo "Locks updated and both suites pass. Review the diff and commit."
+echo "Locks updated and the suites that build from them pass. Review the diff and commit."

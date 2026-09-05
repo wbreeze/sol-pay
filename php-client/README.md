@@ -402,37 +402,111 @@ since the spike is a record, not a dependency.
 ## Publishing
 
 Packaged, not published — `composer.json` is publish-ready (name, PSR-4
-autoload, license, `require`/`require-dev`) but nothing has run `composer
-publish`. Same reasoning as `wasm-client/README.md`'s publishing section:
+autoload, license, `require`/`require-dev`) but nothing has been submitted to
+Packagist. Same reasoning as `wasm-client/README.md`'s publishing section:
 rare, and worth a deliberate decision rather than a side effect of finishing
 the code.
 
-**Packagist versioning needs more than a tag when the day comes.** Unlike
-`cargo publish`/`npm publish`, which package whatever the manifest says at
-the moment you run them, Packagist derives a package's version *from a git
-tag* — and a tag in this repository is repo-wide, so it would apply to
-`pay-on-chain` and `wasm-client` too, meaning nothing to either of them.
-Prefixing the tag to scope it (`php-client-v0.1.0`) looks like the obvious
-fix and was tested directly against Composer's own VCS driver (the same code
-Packagist runs): it does not work. Composer's tag parser requires the tag to
-*be* the version string, with only an optional leading `v` — `v0.1.0` alone
-resolves to `0.1.0`; `php-client-v0.1.0` and `php-client/v0.1.0` are both
-invisible to it, not even parsed incorrectly, just never listed as a version
-at all. A second, independent problem showed up in the same test: Composer's
-VCS repository type requires `composer.json` at the repository root, and
-fails outright (`No valid composer.json was found in any branch or tag`)
-when it lives in a subdirectory the way this one does.
+**Packagist versioning needs more than a tag.** Unlike `cargo publish`/`npm
+publish`, which package whatever the manifest says at the moment you run them,
+Packagist derives a package's version *from a git tag* — and a tag in this
+repository is repo-wide, so it would apply to `pay-on-chain` and `wasm-client`
+too, meaning nothing to either of them. Prefixing the tag to scope it
+(`php-client-v0.1.0`) looks like the obvious fix and was tested directly
+against Composer's own VCS driver (the same code Packagist runs): it does not
+work. Composer's tag parser requires the tag to *be* the version string, with
+only an optional leading `v` — `v0.1.0` alone resolves to `0.1.0`;
+`php-client-v0.1.0` and `php-client/v0.1.0` are both invisible to it, not even
+parsed incorrectly, just never listed as a version at all. A second,
+independent problem showed up in the same test: Composer's VCS repository type
+requires `composer.json` at the repository root, and fails outright (`No valid
+composer.json was found in any branch or tag`) when it lives in a subdirectory
+the way this one does.
 
-Both problems have the same fix, and it's the standard one for this in the
-PHP ecosystem (Symfony's components, Laravel's `illuminate/*` packages): a
-**subtree split** — mirror the `php-client/` subtree into its own dedicated
-repository (`git subtree split -P php-client`, or a CI action like
-`symplify/monorepo-split-github-action`) and point Packagist at that repo
-instead of this one. The split repo gets `composer.json` at its root for
-free, and its own tag history that can never collide with the other two
-artifacts' versioning. Worth building only once publishing is actually
-decided — no point standing up that pipeline for a package nobody can
-`composer require` yet.
+Both problems have the same fix, and it is the standard one in the PHP
+ecosystem (Symfony's components, Laravel's `illuminate/*`): a **subtree
+split** — mirror `php-client/` into its own repository and point Packagist at
+that instead of this one. The split repo gets `composer.json` at its root for
+free, and a tag history that cannot collide with the other two artifacts'
+versioning.
+
+### Publishing a version
+
+`bin/split-php-client` does the local half and stops. It refuses if
+`php-client/` has uncommitted changes, runs `bin/test-php` and `composer
+test`, synthesizes the split, checks the result is actually publishable, and
+prints the remaining commands. It does not push, tag, or publish: those leave
+the machine, need personal credentials, and are hard to take back — the same
+reasoning that leaves `cargo publish` unscripted.
+
+**One-time setup.** Create an empty public repository for the split — it holds
+only this package. Add it as a remote here (`git remote add split <url>`).
+Then submit *that* repository's URL at
+<https://packagist.org/packages/submit>, and enable the GitHub hook Packagist
+offers so later tags are picked up without resubmitting. Nothing is ever
+committed in the split repo by hand; see below.
+
+**Per release, from the root of this repository:**
+
+```
+bin/split-php-client                       # verifies, then updates php-client-release
+git push split php-client-release:master
+```
+
+**Then, in a clone of the split repository — not here:**
+
+```
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The tag belongs there and only there. A tag in this repository would claim to
+version `pay-on-chain` and `wasm-client` as well, which is the whole problem
+the split exists to avoid. `composer.json` carries no `version` field on
+purpose — Composer takes it from the tag, and a hardcoded one conflicts with
+it — and `bin/split-php-client` fails if one appears.
+
+**Why this is not a one-time task.** The split repository is a projection of a
+moving source, so every release re-runs the split to pick up what changed.
+That is cheap: `git subtree split` is deterministic, so the same commits
+synthesize to the same SHAs, the branch *extends* rather than being rewritten,
+and the push is an ordinary fast-forward. The script checks that property
+explicitly instead of trusting it, and refuses rather than suggesting a
+force-push if it ever fails.
+
+The one way to break it: **never commit in the split repository.** It is
+write-only from here. A commit made there diverges from the synthesized
+history, and the next split stops fast-forwarding.
+
+### Why the licences are copied, not linked
+
+`LICENSE-MIT` and `LICENSE-APACHE` here are **intentional duplicates** of the
+ones at the repository root, for the same reason `wasm-client/` carries its
+own: the licence has to be *inside* the published artifact, and this directory
+becomes the root of one.
+
+Copies rather than symlinks, and that is not a style preference. Git stores a
+symlink as a blob whose content is the target string, and `git subtree split`
+moves that blob verbatim — so `php-client/LICENSE-MIT -> ../LICENSE-MIT`
+arrives at the split root still pointing at `../LICENSE-MIT`, now outside the
+repository entirely. Measured: it dangles in a fresh clone, and it survives
+`git archive` *as a symlink* (the zip entry carries the symlink bit and 14
+bytes of path, not the licence text), so it dangles on Composer's dist path
+too. On a checkout without symlink support it is worse — a plain file whose
+entire content is `../LICENSE-MIT`, which looks real and is not.
+`bin/split-php-client` fails on a symlink there rather than shipping one.
+
+### Open: what the package should ship
+
+The split takes everything under `php-client/`, which today includes
+`pda-spike/` — a dated experiment kept as a record — and `vectors-gen/`, a
+Rust crate that cannot run for a Composer consumer at all. Neither breaks
+anything, and both are small in git, but a `composer require` currently hands
+somebody a spike and a Rust generator alongside the library. Excluding them
+(from the split, or with `.gitattributes` `export-ignore`) is a decision that
+has not been made. `bin/split-php-client` prints the package's top level on
+every run so the answer stays visible rather than being discovered by a
+consumer.
 
 ## Licence
 

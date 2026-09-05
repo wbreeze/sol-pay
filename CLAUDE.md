@@ -351,7 +351,8 @@ crate moving.
   the reader to verify them by hand.
 - `wasm-client/pkg/`, both `target/` directories, `php-client/vectors-gen/target/`,
   and `php-client/vectors-gen/vectors.json` are gitignored build/generated
-  output — never edit them. `wasm-client/LICENSE-*` are intentional duplicates
+  output — never edit them. `wasm-client/LICENSE-*` and `php-client/LICENSE-*`
+  are intentional duplicates
   of the root licences so they ship inside the published artifacts.
 - Publishing is deliberately unscripted (see `wasm-client/README.md`): it is
   rare, irreversible on crates.io, and needs personal credentials.

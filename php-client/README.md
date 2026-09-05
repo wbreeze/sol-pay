@@ -23,9 +23,11 @@
 ## Description
 
 A server-side PHP port of `wasm-client`'s core, for a site whose server has no
-Rust toolchain and no WASM runtime. Packaged as `wbreeze/sol-pay-client` on
-Composer; not published anywhere. See `wasm-client/SPEC.md` for the design
-this mirrors, and `wasm-client/README.md` for the same crate in Rust/JS form.
+Rust toolchain and no WASM runtime. Published on Packagist as
+[`wbreeze/sol-pay-client`](https://packagist.org/packages/wbreeze/sol-pay-client)
+— `composer require wbreeze/sol-pay-client`. See `wasm-client/SPEC.md` for the
+design this mirrors, and `wasm-client/README.md` for the same crate in Rust/JS
+form.
 
 ## What is here, and what is deliberately not
 
@@ -423,11 +425,18 @@ since the spike is a record, not a dependency.
 
 ## Publishing
 
-Packaged, not published — `composer.json` is publish-ready (name, PSR-4
-autoload, license, `require`/`require-dev`) but nothing has been submitted to
-Packagist. Same reasoning as `wasm-client/README.md`'s publishing section:
-rare, and worth a deliberate decision rather than a side effect of finishing
-the code.
+**Published 2026-09-05, `v0.1.0`.** It stayed packaged-but-unpublished until
+then on purpose — the same reasoning `wasm-client/README.md`'s publishing
+section gives: rare, irreversible, and worth a deliberate decision rather than
+a side effect of finishing the code. What follows is the mechanism, which is
+unusual enough to be worth reading before the second release.
+
+What the tag actually shipped, confirmed against `git archive v0.1.0` in a
+clone of the mirror: the two licences, this README, `composer.json`,
+`composer.lock`, `.gitignore` and `src/Core`. Nothing else — see "What the
+package ships" above for why, and note that Packagist's recorded dist and
+source reference for `v0.1.0` is `1431093`, the mirror's tag, not a commit in
+the development repository.
 
 **Packagist versioning needs more than a tag.** Unlike `cargo publish`/`npm
 publish`, which package whatever the manifest says at the moment you run them,
@@ -462,9 +471,26 @@ the machine, need personal credentials, and are hard to take back — the same
 reasoning that leaves `cargo publish` unscripted.
 
 **One-time setup.** Create a public repository for the split — it holds only
-this package. Add it as a remote here (`git remote add split <url>`). Then
-submit *that* repository's URL at <https://packagist.org/packages/submit>, and
-enable the GitHub hook Packagist offers so later tags are picked up without
+this package. Add it as a remote here, **over SSH**:
+
+```
+git remote add split git@github.com:<owner>/<mirror>.git
+git fetch split
+```
+
+The `https://` URL GitHub offers on the repository page is the wrong one to
+paste. Nothing else here uses it, so it has no credential helper behind it and
+no key to fall back on: git will not try SSH at all, it will prompt for a
+GitHub username and password, and password authentication for git operations
+was removed years ago — so the push fails with `Invalid username or token`
+while the SSH key that would have worked sits unused. If that has already
+happened, `git remote set-url split git@github.com:<owner>/<mirror>.git` fixes
+it. The `git fetch` is what gives `bin/split-php-client` a
+`refs/remotes/split/master` to check against; without it the script says so
+and checks nothing.
+
+Then submit *that* repository's URL at <https://packagist.org/packages/submit>,
+and enable the GitHub hook Packagist offers so later tags are picked up without
 resubmitting. Nothing is ever committed in the split repo by hand; see below.
 
 **The first push is the one exception, and it needs `--force`.** A repository
@@ -478,8 +504,17 @@ successful push anyway, and a note that belongs to the mirror belongs at the
 top of this file instead, where every split carries it forward.
 
 ```
-git push --force-with-lease=master:<the sha the mirror is on now> split php-client-release:master
+git ls-remote split master                 # or: git rev-parse split/master
+git push --force-with-lease=master:<that sha> split php-client-release:master
 ```
+
+**The sha has to be the mirror's, and there is a live way to get it wrong.**
+It is what `master` is on *in the mirror* — not a commit from this repository,
+however recently you made it. Read it back rather than typing one you
+remember: a sha the remote's `master` has never been at can never satisfy the
+lease, so the push is refused no matter how many times you run it, and the
+error talks about stale info rather than about the sha being from the wrong
+repository.
 
 `--force-with-lease` rather than `--force` so it still refuses if the mirror
 has moved since you looked — the thing worth catching is somebody having

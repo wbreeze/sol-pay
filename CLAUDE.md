@@ -10,10 +10,11 @@ proof of concept, no front end:
 - `pay-on-chain/` — the Anchor program plus its LiteSVM test crate.
 - `wasm-client/` — `sol-pay-client`, instruction builders published both to
   crates.io (native Rust core) and to npm as a browser bundle.
-- `php-client/` — `wbreeze/sol-pay-client`, a Composer package (packaged,
-  not published) covering the server-signed half of `wasm-client/src/core`
-  for PHP servers with no Rust toolchain and no WASM runtime. Not wired into
-  `bin/`, CI, or the Rust workspace — see below.
+- `php-client/` — `wbreeze/sol-pay-client`, published on Packagist, covering
+  the server-signed half of `wasm-client/src/core` for PHP servers with no
+  Rust toolchain and no WASM runtime. Not in the Rust workspace; it *is*
+  wired into `bin/` (`bin/test-php`) and CI (`php-conformance.yml`). It
+  publishes from a mirror repository rather than from here — see below.
 
 `wasm-client/SPEC.md` is the API specification and the reasoning behind the
 public surface; `state-machine.plantuml` (rendered to `state-machine.png`) is

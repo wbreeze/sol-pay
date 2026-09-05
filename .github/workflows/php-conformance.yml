@@ -58,7 +58,13 @@ jobs:
         working-directory: php-client/vectors-gen
         run: cargo run --release --locked > "$GITHUB_WORKSPACE/vectors.json"
 
-      - uses: actions/upload-artifact@v4
+      # v6, not v4: v4 targets Node 20, which GitHub deprecated on its runners
+      # -- it still runs, forced onto Node 24, but it warns on every job and
+      # will eventually stop. v6 is where these actions moved to the Node 24
+      # runtime. Keep upload and download on the *same* major: the artifact
+      # format is what they agree on, and a mismatched pair uploads happily
+      # and downloads nothing.
+      - uses: actions/upload-artifact@v6
         with:
           name: php-conformance-vectors
           path: vectors.json
@@ -79,7 +85,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v6
         with:
           name: php-conformance-vectors
 

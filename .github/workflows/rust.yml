@@ -62,7 +62,10 @@ jobs:
       - name: Build browser bundle
         run: ./bin/build-rust --client
 
-      - uses: actions/upload-artifact@v4
+      # v6, not v4: v4 targets Node 20, deprecated on GitHub's runners.
+      # Nothing downloads this one -- it is here to be fetched by hand --
+      # but the deprecation applies the same.
+      - uses: actions/upload-artifact@v6
         with:
           name: wasm-client-pkg
           path: wasm-client/pkg/

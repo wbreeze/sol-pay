@@ -57,4 +57,18 @@ echo "==> generating conformance vectors"
 echo "==> php conformance"
 php "$ROOT/php-client/conformance/vectors.php" "$VECTORS"
 
+# A second conformance run against a *committed* fixture, and the difference in
+# provenance is the point. The vectors above are regenerated from the published
+# crate on every run -- an outside opinion about what the right answers are.
+# This one is recorded by pay-on-chain/tests against the *local* program, which
+# is the only thing that can say whether php-client's preflight arithmetic
+# agrees with the program you are about to deploy. It moves when bin/test-rust
+# rewrites it, so a moved verdict arrives as a reviewable diff.
+#
+# No Rust runs here: the fixture is committed precisely so this check needs
+# neither a toolchain nor a built program. If it is missing, that is a broken
+# checkout and the script says so rather than skipping.
+echo "==> php preflight against the program"
+php "$ROOT/php-client/conformance/preflight.php"
+
 echo "done."

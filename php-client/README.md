@@ -120,29 +120,55 @@ cross-check; their tests mirror `wasm-client`'s own `#[cfg(test)]` modules
 test-for-test instead. For `Units` that is the right level of rigor — there
 is no encoding there to get wrong.
 
-**For `Preflight` it is not, and this is the one part of the package kept in
-step by hand.** `Preflight`'s class doc says so, and `wasm-client/SPEC.md` §8
-says why it matters: in `pay-on-chain/tests` every Rust preflight predicate
-is checked against actual LiteSVM behaviour, because a predicate that
-disagrees with the program is worse than having no predicate at all. These
-copies have no such check. Mirroring the Rust tests test-for-test does not
-supply one — it checks this port against the port's reading of the program,
-and both readings come from the same place. Vectors cannot supply one
-either: preflight produces no chain-serialized bytes, which is why
-`vectors-gen` emits none for it.
+**For `Preflight` it is not, and closing that took a second fixture with
+different provenance.** `wasm-client/SPEC.md` §8 says why it matters: in
+`pay-on-chain/tests` every Rust preflight predicate is checked against actual
+LiteSVM behaviour, because a predicate that disagrees with the program is
+worse than having no predicate at all. These copies had no such check.
+Mirroring the Rust tests test-for-test would not have supplied one — that
+checks this port against the port's reading of the program, both readings
+from the same place. Nor could `vectors-gen`: preflight produces no
+chain-serialized bytes, which is why it emits none for it, and a verdict
+computed from the Rust *client* predicates would only prove PHP agrees with
+Rust, not with the program.
 
-The demonstrator will be the first thing running these predicates against a
-real devnet, and a disagreement will surface there as a transaction that
-fails after preflight said it would not — the failure the LiteSVM check on
-the Rust side exists to prevent, and which SPEC §8 calls the point of that
-exercise. **This is open work.** Its shape is not
-settled and the cheap option is not obviously the right one: a PHP-side
-harness driving the same LiteSVM cases the Rust tests drive would be a
-fixture format crossing a language boundary, which is a larger thing than it
-sounds, while having `vectors-gen` emit the program's *verdict* for a set of
-preflight inputs — blocked or not, and which cause — would at least check
-the predicates against something the program produced rather than against a
-second reading of it.
+What supplies it is a recording. `pay-on-chain/tests/src/test_preflight_fixture.rs`
+drives the same live SVM the other tests drive and writes
+`conformance/preflight-fixture.json`: the three account records as raw bytes
+at each interesting instant, the predicate's verdict there, and what the
+program then actually did. `conformance/preflight.php` replays it. The
+boundary it crosses is one both sides already agree on — `Site::decode`,
+`Contract::decode` and `TokenAccount::decode` are themselves checked
+byte-for-byte on every conformance run — so there is no new schema to keep in
+step.
+
+Three properties of that arrangement are worth stating, because each one was
+a choice:
+
+- **The recording is gated by the assertions around it.** Every case requires
+  the program to agree before it is kept, and the file is written once at the
+  end of a passing run. A program regression therefore fails `bin/test-rust`
+  and leaves the committed fixture untouched, rather than quietly rewriting
+  this port's expectations to match the regression.
+- **It is committed, and its provenance is not `vectors.json`'s.** The
+  vectors come from the *published* crate and are regenerated every run — an
+  outside opinion. This comes from the *local* program, because the question
+  is whether this port agrees with the program you are about to deploy. It
+  moves only when `bin/test-rust` rewrites it, which makes a moved verdict a
+  reviewable diff. The two files answer different questions and should not be
+  merged.
+- **Coverage is what the recorded cases touch, and no more.** Pinned:
+  `charge`, `canMeter` (including `over`), `willSettle`, `viewsRemaining`,
+  `limitFloor`, and `Shortfall::diagnose`'s three fields. Not pinned:
+  `requiredAllowance`, which is the identity function, and `Blocked::Overflow`,
+  which no realistic page count reaches — and which would not mean the same
+  thing on both sides anyway, since this package overflows at `PHP_INT_MAX`
+  and the program at `u64`. Widening it means adding a case to the Rust
+  recorder: one place, both ports.
+
+The demonstrator is still the first thing running these predicates against a
+real devnet, and that remains the sharper test — a recording pins agreement
+at the states the harness reaches, not at every state a live site produces.
 
 ## Transaction assembly (`SolPay\Tx`)
 

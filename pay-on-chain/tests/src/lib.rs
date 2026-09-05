@@ -13,3 +13,6 @@ mod test_metering;
 
 #[cfg(test)]
 mod test_preflight;
+
+#[cfg(test)]
+mod test_preflight_fixture;

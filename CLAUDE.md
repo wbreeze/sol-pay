@@ -238,12 +238,17 @@ than copied:
 
 `Preflight` and `Units` are pure arithmetic with no chain-serialized bytes to
 cross-check; their PHPUnit tests mirror wasm-client's own `#[cfg(test)]`
-modules test-for-test instead. For `Units` that is the appropriate level of
-rigor. For `Preflight` it is not: the Rust predicates are pinned against real
-LiteSVM behaviour in `pay-on-chain/tests` and these copies are pinned against
-nothing, so this is the one part of the package kept in step by hand. Open
-work, with the options recorded — `php-client/README.md`, "Drift control",
-and SPEC §8.1.
+modules test-for-test. For `Units` that is the appropriate level of rigor. For
+`Preflight` it is not, and the gap is closed by a **second fixture with
+different provenance**: `pay-on-chain/tests/src/test_preflight_fixture.rs` is
+a test that exists to write a file, recording account bytes, the predicate's
+verdict and what the program then did; `conformance/preflight.php` replays it.
+Committed, from the *local* program, moved only by `bin/test-rust` — the
+opposite of `vectors.json`, which is regenerated every run from the
+*published* crate. **Do not merge the two**; they answer different questions.
+Coverage is what the recorded cases reach — `requiredAllowance` and
+`Blocked::Overflow` are not pinned, and the PHP script says so in place.
+Widen it by adding a case to the Rust recorder: one place, both ports.
 
 `SolPay\Tx` closes the gap that section describes: a PHP site authority can
 now compile the message that carries an `Ix` instruction and frame it for the

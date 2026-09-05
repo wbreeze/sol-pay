@@ -13,8 +13,12 @@ namespace SolPay\Core;
  * The arithmetic is duplicated from the program on purpose -- this package
  * cannot call into it -- mirroring wasm-client/src/core/preflight.rs, whose
  * predicates are checked against real LiteSVM behaviour in
- * pay-on-chain/tests. This PHP copy has no such check yet and must be kept
- * in step by hand until one exists.
+ * pay-on-chain/tests. This copy is checked against the same program, one
+ * step removed: pay-on-chain/tests/src/test_preflight_fixture.rs records the
+ * account bytes at each interesting instant together with what the program
+ * then did, and php-client/conformance/preflight.php replays that recording
+ * against the methods below. Coverage is exactly the states those recorded
+ * cases reach -- see that script's header for what is and is not pinned.
  *
  * Overflow here means "does not fit in PHP_INT_MAX" (~9.2e18), not
  * "does not fit in u64" (~1.8e19) -- PHP has no unsigned 64-bit integer, so

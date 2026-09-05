@@ -788,17 +788,28 @@ regression and useless against the crate moving underneath it -- frozen
 literals agree with themselves. The two run for different reasons and neither
 replaces the other.
 
-**One part of the port has no check at all, and it is the part §8 calls the
-point of the exercise.** The preflight predicates are pinned against real
-LiteSVM behaviour in `pay-on-chain/tests`; `php-client`'s copies of them are
-not, and `Preflight`'s own class doc says so -- arithmetic duplicated from
-the program and kept in step by hand. Vectors cannot close this. Preflight
-has no chain-serialized bytes to compare, which is why `vectors-gen` emits
-none for it, and its PHPUnit tests mirror the Rust `#[cfg(test)]` modules
-test-for-test, which checks the port against the port's reading of the
-program rather than against the program. The demonstrator will be the first
-thing running these predicates against a real devnet, where a disagreement
-surfaces as a transaction that fails after preflight said it would not --
-the exact failure named above as worse than having no predicate. Closing it
-is open work; `php-client/README.md`, "Drift control", carries what is known
-about how.
+**The part §8 calls the point of the exercise is checked by a recording, not
+by vectors.** The preflight predicates are pinned against real LiteSVM
+behaviour in `pay-on-chain/tests`; `php-client`'s copies could not be, because
+preflight produces no chain-serialized bytes to compare -- which is why
+`vectors-gen` emits none for it. Mirroring the Rust `#[cfg(test)]` modules
+test-for-test would not have helped either: that checks the port against the
+port's reading of the program, both readings from the same place.
+
+What closes it is `pay-on-chain/tests/src/test_preflight_fixture.rs`, a test
+whose purpose is to write a file. It drives the same live SVM, and records the
+account bytes at each interesting instant, the predicate's verdict there, and
+what the program then did; `php-client/conformance/preflight.php` replays that
+against the port. The recording is gated by the assertions around it and
+written only at the end of a passing run, so a program regression fails the
+Rust suite and leaves the committed fixture alone rather than rewriting the
+port's expectations to match it. Provenance is deliberately not
+`vectors.json`'s -- that comes from the *published* crate and regenerates
+every run, this comes from the *local* program and moves only when
+`bin/test-rust` rewrites it, which makes a moved verdict a reviewable diff.
+
+Coverage is what the recorded cases reach and no more, which the PHP script
+states in place rather than leaving to be discovered. The demonstrator remains
+the sharper test: a recording pins agreement at the states the harness
+reaches, and a live site reaches states it does not. `php-client/README.md`,
+"Drift control", carries the detail.

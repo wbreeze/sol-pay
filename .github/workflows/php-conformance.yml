@@ -106,3 +106,11 @@ jobs:
 
       - name: Conformance
         run: php php-client/conformance/vectors.php vectors.json
+
+      # Different provenance from the step above, and it needs nothing built:
+      # the fixture is committed, recorded by pay-on-chain/tests against the
+      # local program. That is why this runs on the PHP matrix rather than in
+      # the Rust job -- no toolchain, no program .so, just the recording and
+      # the port that has to agree with it.
+      - name: Preflight against the program
+        run: php php-client/conformance/preflight.php

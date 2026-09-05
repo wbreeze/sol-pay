@@ -375,12 +375,21 @@ arithmetic already accepted here.
    sign, and the System program is readonly and neither, so three of the four
    header partitions and the fee-payer-prepended rule are all on the wire.
 
-   **The other half is `meter_and_settle`.** That transfer carries no Anchor
-   discriminator, no CPI and none of this package's own account lists, so what
-   is proven is the encoder rather than the instruction on top of it. With
-   `meter_and_settle` signed by the site authority, compilation sits on the
-   metering path rather than only in first-run setup, so the demonstrator will
-   exercise it on every settling request — the best evidence available, and
+   **Then `initialize_site`, the same day.** The demonstrator's first-run
+   setup called it against the deployed program on devnet: site account
+   `7X4hDbm4...m1dSCVt`, signature `25eDQUqu...cUpZaSWi`. That is this
+   package's own instruction rather than the encoder alone, and four things
+   passed at once that a transfer could not reach — the Anchor discriminator
+   `sha256("global:initialize_site")[..8]`, the five-account list with its
+   signer and writable flags, three borsh `u64` arguments, and
+   `Pda::siteAddress`, which the program re-derives from its own seeds and
+   would have rejected as a seeds-constraint failure had it disagreed.
+
+   **The half that is left is `meter_and_settle`.** Neither transaction so far
+   carries a CPI, a delegate, or a transfer, and `initialize_site` runs once at
+   setup rather than on the metering path. With `meter_and_settle` signed by
+   the site authority, compilation sits on that path and the demonstrator
+   exercises it on every settling request — the best evidence available, and
    the thing SPEC §7 is actually waiting for.
 
 4. **Then amend SPEC §7's sentence**, which §7 already carries as pending.

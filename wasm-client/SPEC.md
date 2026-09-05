@@ -718,13 +718,20 @@ objection this paragraph rested on -- no signature in those vectors is real,
 no blockhash was ever current, nothing had paid a fee -- since one now is,
 one was, and something has.
 
+Later the same day the demonstrator's first-run setup sent `initialize_site`
+to the deployed program, signature `25eDQUqu...cUpZaSWi`. That is a stronger
+result than the transfer and worth separating from it: a System transfer
+exercises the message format alone, while this put an `Ix` instruction in
+front of the program that defines it -- discriminator, account list and
+flags, borsh arguments, and a PDA the program re-derives from its own seeds
+and would have refused had it disagreed.
+
 The amendment is still **held**, and the condition left is the one this
-paragraph already named rather than a new one. A System transfer exercises
-the message format and nothing else: no Anchor discriminator, no CPI, no
-`meter_and_settle` account list. What has been shown is that the encoder
-produces transactions a validator accepts, which is not yet the claim that
-this library's own instruction rides it correctly. Once the demonstrator has
-settled a metering call against devnet, "it builds instructions and decodes
+paragraph already named rather than a new one: a *metering call*. Nothing
+submitted so far carries a cross-program invocation, a delegate or a
+transfer, and `initialize_site` runs once at setup rather than on the path a
+reader takes. Once the demonstrator has settled a metering call against
+devnet, "it builds instructions and decodes
 bytes" becomes "it builds instructions and the message that carries them, and
 decodes bytes" -- and every verb above survives it unchanged: still no
 signing, no signature verification, no sign-in message construction, no RPC,

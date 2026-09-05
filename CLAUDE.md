@@ -261,12 +261,17 @@ rather than by the order the instructions named them, and that the fee payer
 is prepended rather than sorted and is forced writable even when the
 instruction marked it readonly. `php-client/README.md`, "Transaction
 assembly", carries the rest. **Devnet has accepted its output since
-2026-09-05** — the demonstrator's `bin/devnet-smoke` compiled, signed and
-sent a System transfer, which is the first time any of this met a chain. What
-remains open is narrower than it was: that transfer carried one signature and
-no Anchor instruction, so `meter_and_settle` itself has still never been
-compiled by this package and submitted. SPEC §7's amendment is held for that,
-which is what §7 has always said it was waiting for.
+2026-09-05**, twice and in that order: `bin/devnet-smoke` sent a System
+transfer, and then the demonstrator's first-run setup sent `initialize_site`
+against the deployed program. The second is the one that matters here — it is
+`Ix`'s own instruction, so the discriminator, the five-account list and its
+flags, the borsh `u64` arguments and `Pda::siteAddress` were all checked by
+the program rather than by a vector.
+
+What remains is `meter_and_settle`: nothing submitted so far carries a CPI, a
+delegate or a transfer, and `initialize_site` runs once at setup rather than
+on the metering path. SPEC §7's amendment is held for that, which is what §7
+has always said it was waiting for.
 
 Regenerate and re-check after touching `state.rs`, `errors.rs`, `pda.rs`, or
 `ix.rs`:

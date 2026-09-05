@@ -3,3 +3,9 @@
 
 # misc
 .DS_Store
+
+# Per-person Claude Code settings (tool permissions and the like). Only the
+# .local file: `.claude/` as a whole stays trackable on purpose, so a shared
+# settings.json or a project skill can be committed later without first having
+# to notice that a blanket ignore is hiding it.
+.claude/settings.local.json

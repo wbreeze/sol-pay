@@ -28,10 +28,84 @@ need() {
   }
 }
 
+# `anchor build` generates target/deploy/pay_on_chain-keypair.json when that
+# file is absent -- and only then. It never reads it to build the program: the
+# id compiled into the .so comes from declare_id! in lib.rs. So what the build
+# leaves behind is not the deploy key. It is a placeholder that happens to sit
+# at the path `--program-id` reaches for out of habit.
+#
+# That cost a real devnet deploy on 2026-09-05. `bin/clean --program` had
+# removed target/, taking the gitignored keypair with it; the next build minted
+# a fresh one; and
+#
+#   solana program deploy target/deploy/pay_on_chain.so \
+#     --program-id target/deploy/pay_on_chain-keypair.json --url devnet
+#
+# put the program at *that* keypair's address instead of the declared one. It
+# deployed cleanly and was inert: Anchor's entrypoint rejects every instruction
+# whose program id is not declare_id!'s, so nothing the program exists to do
+# could ever run there. Rent and a signature, spent on a program that cannot
+# answer.
+#
+# Neither the build nor the suite notices on its own. The LiteSVM harness loads
+# the .so at the *declared* id (tests/src/harness.rs), so bin/test-rust is green
+# either way -- by design, and documented as such. Only a real deploy sees it,
+# and by then it has already happened.
+#
+# Hence a warning here, at the moment the placeholder is created, which is the
+# earliest point anything can say so. It is a warning and not an error because a
+# fresh clone mismatching is correct and expected: that person has no copy of
+# this address's key and is not entitled to one. See pay-on-chain/README.md,
+# "Program id".
+check_program_key() {
+  local dir="$ROOT/pay-on-chain"
+  local keypair="$dir/target/deploy/pay_on_chain-keypair.json"
+  local source="$dir/programs/pay-on-chain/src/lib.rs"
+
+  # Anything missing here means there is nothing to compare, not a problem to
+  # report: no build ran, or the Solana CLI is arranged some way this cannot
+  # read. Stay quiet rather than guess.
+  [ -f "$keypair" ] || return 0
+  [ -f "$source" ] || return 0
+  command -v solana-keygen >/dev/null 2>&1 || return 0
+
+  local declared held
+  declared="$(sed -n 's/^declare_id!("\(.*\)");$/\1/p' "$source")"
+  held="$(solana-keygen pubkey "$keypair" 2>/dev/null)" || return 0
+  [ -n "$declared" ] && [ -n "$held" ] || return 0
+  [ "$declared" != "$held" ] || return 0
+
+  cat >&2 <<EOF
+
+warning: target/deploy/pay_on_chain-keypair.json is not this program's deploy key
+
+  declare_id!   $declared
+  that keypair  $held
+
+  anchor build generated it because the file was missing. It does not make the
+  program answer to it -- the .so just built is compiled for the declared id.
+
+  Deploying to the declared id?
+    Pass --program-id pointing at your own saved copy of that keypair, kept
+    outside this tree. bin/clean --program deletes target/ and everything in
+    it, which is how the copy that belongs here went missing.
+
+  Standing up an instance of your own?
+    Run \`anchor keys sync\` first, so lib.rs, Anchor.toml and this keypair
+    agree, then rebuild. The published clients -- the crate, the npm bundle
+    and the PHP package -- hardcode the declared id, so your instance also
+    needs it overridden (core::Program / PayOnChain / SolPay\Program).
+
+  pay-on-chain/README.md, "Program id", has the rest.
+
+EOF
+}
+
 if [ "$want_program" = 1 ]; then
   need anchor "Install with: cargo install --git https://github.com/solana-foundation/anchor avm && avm install latest"
   echo "==> anchor build"
   ( cd "$ROOT/pay-on-chain" && anchor build )
+  check_program_key
 fi
 
 if [ "$want_client" = 1 ]; then

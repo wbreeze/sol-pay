@@ -63,3 +63,41 @@ anyone holding it could claim the address on a cluster where the program has
 not been deployed yet. Upgrades do not need it -- those are signed by the
 upgrade authority.
 
+### The trap without a fresh clone
+
+`bin/clean --program` removes `target/` and takes that gitignored keypair with
+it. The next `anchor build` mints a replacement without saying so, because it
+generates the file whenever it is absent and never reads it otherwise -- the id
+compiled into the `.so` comes from `declare_id!`, not from the keypair. What
+the build leaves behind is therefore a placeholder sitting exactly where
+`--program-id` reaches for out of habit. It deploys perfectly well, to the
+wrong address, where Anchor's entrypoint rejects every instruction the program
+exists to serve. This has happened once, on devnet, on 2026-09-05.
+
+`bin/build-rust --program` now warns when the keypair in `target/deploy/` does
+not match `declare_id!`, which is the earliest moment anything can notice.
+Copying your saved key there silences it; `bin/clean` will delete that copy
+too, which is exactly why the copy outside the repository is the one that
+matters.
+
+### Deploying to the declared address
+
+From a clone that holds the saved key, pointing at it where it actually lives:
+
+```
+solana program deploy target/deploy/pay_on_chain.so \
+  --program-id /path/to/your/pay_on_chain-keypair.json \
+  --url devnet
+```
+
+Nothing here scripts that, for the reason `wasm-client/README.md` gives about
+publishing: it is rare, irreversible, needs personal credentials, and the path
+in the middle is yours and belongs in no file of ours. The wallet in
+`solana config get` is only fee payer and upgrade authority -- it has no say in
+the address, which comes from the `--program-id` file alone.
+
+The program is live on devnet at the declared address as of 2026-09-05, so the
+claim-the-address risk above now applies to mainnet and to any cluster it has
+not reached, no longer to devnet. Upgrades there are signed by the upgrade
+authority, and need no copy of the program keypair at all.
+

@@ -10,15 +10,15 @@
 > [wbreeze/sol-pay-php](https://github.com/wbreeze/sol-pay-php).
 > Packagist publishes from the mirror.  The mirror, `wbreeze/sol-pay-php`, is a
 > projection, never a place to work.  The script, `bin/split-php-client` in the
-> `wbreeze/sol-pay` repository synthesizes its history from this directory. Any
-> commit made within `wbreeze/sol-pay-php` would prevent the next split from
-> fast-forwarding — and would be erased regardless, because the synthesized
-> tree *is* this directory's contents and holds nothing else.
+> `wbreeze/sol-pay` repository uses `git split` to synthesize history from this
+> `php-client` directory. Any commit made within `wbreeze/sol-pay-php` would
+> prevent the next split from fast-forwarding and will be erased, because the
+> synthesized tree *is* the `php-client` directory contents, nothing else.
 >
 > In short, make any and all changes in the `php-client` directory of the
 > `wbreeze/sol-pay` repository.
 >
-> See "Publishing" below.
+> See ["Publishing"](#publishing) below.
 
 ## Description
 

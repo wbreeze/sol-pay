@@ -543,6 +543,27 @@ the split exists to avoid. `composer.json` carries no `version` field on
 purpose — Composer takes it from the tag, and a hardcoded one conflicts with
 it — and `bin/split-php-client` fails if one appears.
 
+**Which of those two pushes publishes the version?** Neither, exactly, and the
+distinction is worth holding on to. Packagist's hook fires on GitHub's `push`
+event, and GitHub sends that for a tag push as much as a branch push. But the
+hook carries no instruction about *what* changed: it queues a re-crawl, and
+Packagist then re-reads the mirror's whole list of branches and tags through
+Composer's VCS driver and rebuilds the version list from scratch. Tags become
+releases, branches become `dev-` versions.
+
+So the branch push refreshes `dev-master` and finds no tag; the tag push
+triggers a second crawl that finds one. The tag is *discovered*, never
+announced — which is why the order matters only in the sense that whichever
+push happens last is the one that makes the release visible, and why forgetting
+the hook is survivable rather than fatal: Packagist crawls a hookless package
+weekly on its own, and a hooked one at least monthly if a delivery is missed.
+
+Two consequences. A release's metadata comes from `composer.json` **as it
+exists at that tag** — fixing something on `master` afterwards changes nothing
+about a version already cut, and needs a new tag. And the tag has to be pushed
+to the mirror: tagging here does nothing, since the hook is on the mirror and
+Composer could not parse a scoped tag name anyway (above).
+
 **Why this is not a one-time task.** The split repository is a projection of a
 moving source, so every release re-runs the split to pick up what changed.
 That is cheap: `git subtree split` is deterministic, so the same commits

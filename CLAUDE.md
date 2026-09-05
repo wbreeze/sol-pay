@@ -354,5 +354,13 @@ crate moving.
   output — never edit them. `wasm-client/LICENSE-*` and `php-client/LICENSE-*`
   are intentional duplicates
   of the root licences so they ship inside the published artifacts.
+- `php-client/.gitattributes` decides what the Composer **dist zip** carries:
+  `pda-spike/`, `vectors-gen/`, `tests/`, `conformance/` and `phpunit.xml` are
+  `export-ignore`d, so they stay in the split repository and out of every
+  `composer require`. Anything new added under `php-client/` that is not
+  library source needs a line there, and `bin/split-php-client` whitelists the
+  package's top level so a missing line fails the split rather than shipping.
+  The reasoning, and two `git archive` gotchas, are in `php-client/README.md`,
+  "What the package ships".
 - Publishing is deliberately unscripted (see `wasm-client/README.md`): it is
   rare, irreversible on crates.io, and needs personal credentials.

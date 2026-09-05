@@ -125,6 +125,32 @@ for d in wasm-client pay-on-chain bin .github; do
 done
 [ "$leaked" = 0 ] && say "ok  " "nothing from the rest of the repository leaked"
 
+# What the dist zip carries. The extraction above is `git archive`, so what
+# $work holds *is* the zip Packagist hands Composer -- development artifacts
+# and the suites are held back by php-client/.gitattributes `export-ignore`,
+# which leaves them in the split repository (where they belong: the record
+# goes with the source) and out of every install.
+#
+# A whitelist rather than a list of things to exclude, and that is the point.
+# The exclusion is a few lines in one file that nothing else in the repository
+# would notice if they were deleted, and the failure it guards against is the
+# *next* thing added under php-client/ with no line written for it -- which a
+# blocklist cannot see. Adding to the package is then a deliberate edit here,
+# which is the same reasoning as leaving publishing unscripted.
+allowed=" .gitignore LICENSE-APACHE LICENSE-MIT README.md composer.json composer.lock src "
+unexpected=0
+while IFS= read -r entry; do
+  case "$allowed" in
+    *" $entry "*) ;;
+    *)
+      say "FAIL" "$entry is in the dist zip; export-ignore it in php-client/.gitattributes, or add it here"
+      unexpected=1
+      fail=1
+      ;;
+  esac
+done < <( cd "$work" && ls -A )
+[ "$unexpected" = 0 ] && say "ok  " "the dist zip carries the library and nothing else"
+
 # Packagist derives the version from the tag; a hardcoded one conflicts with
 # it and Composer then cannot determine a version at all.
 if grep -q '"version"' "$work/composer.json"; then

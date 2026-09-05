@@ -1,0 +1,38 @@
+# What Composer's dist zip carries, and what it leaves behind.
+#
+# `bin/split-php-client` mirrors this whole directory into the repository
+# Packagist publishes from, and it cannot mirror only part of it -- `git
+# subtree split` takes a prefix whole. So everything below is in the split
+# repository, and should be: the spike is the record of how this package's
+# arithmetic was settled, the generator is how its vectors are made, and the
+# suites are how anyone checks the claim. That record belongs with the source.
+#
+# None of it belongs in an install. `export-ignore` is where those two answers
+# separate: it governs `git archive`, which is what GitHub serves and what
+# Packagist hands Composer as the dist zip -- the way essentially every
+# `composer require` of this package will arrive. Cloning the split repository
+# still gets everything.
+#
+# This file is inside the prefix, so it splits along with the rest and lands
+# at the split repository's root, where the paths below resolve. The leading
+# slash anchors each to the directory holding this file, which is `php-client`
+# here and the package root there -- the same two directories either way.
+
+# Development artifacts: a dated experiment and a Rust crate a Composer
+# consumer cannot run at all.
+/pda-spike      export-ignore
+/vectors-gen    export-ignore
+
+# The suites and their runner, the conventional exclusion. `conformance/`
+# goes with them and is not a judgement call: it reads vectors-gen's
+# vectors.json, which is gitignored and never shipped either way, so it could
+# not run from a dist zip even before this.
+/tests          export-ignore
+/conformance    export-ignore
+/phpunit.xml    export-ignore
+
+# composer.lock deliberately stays. It is committed for a reproducible dev
+# install (see .gitignore), Composer ignores a dependency's lock outright, and
+# it is one small file -- excluding it would buy nothing and lose the record.
+
+/.gitattributes export-ignore

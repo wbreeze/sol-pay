@@ -496,17 +496,69 @@ too. On a checkout without symlink support it is worse — a plain file whose
 entire content is `../LICENSE-MIT`, which looks real and is not.
 `bin/split-php-client` fails on a symlink there rather than shipping one.
 
-### Open: what the package should ship
+### What the package ships
 
-The split takes everything under `php-client/`, which today includes
-`pda-spike/` — a dated experiment kept as a record — and `vectors-gen/`, a
-Rust crate that cannot run for a Composer consumer at all. Neither breaks
-anything, and both are small in git, but a `composer require` currently hands
-somebody a spike and a Rust generator alongside the library. Excluding them
-(from the split, or with `.gitattributes` `export-ignore`) is a decision that
-has not been made. `bin/split-php-client` prints the package's top level on
-every run so the answer stays visible rather than being discovered by a
-consumer.
+Decided 2026-09-05. The split takes everything under `php-client/`, which
+includes `pda-spike/` — a dated experiment kept as a record — and
+`vectors-gen/`, a Rust crate that cannot run for a Composer consumer at all.
+Neither breaks anything, and both are small in git, but a `composer require`
+should not hand somebody a spike and a Rust generator alongside the library.
+
+The suites go too, which is the conventional exclusion in this ecosystem —
+`tests/` and `phpunit.xml`, and `conformance/` with them. That last one is not
+a judgement call: `conformance/vectors.php` reads `vectors-gen/vectors.json`,
+which is gitignored and has never been in a package, so the script could not
+run from a dist zip before this either.
+
+Two remedies were available and they are not the same remedy. Excluding all of
+it **from the split** would take it out of the published repository too, and
+it should be there: the split repo is the package's public source, and how the
+field arithmetic was settled, how the vectors are made, and how anyone checks
+the claim are all part of that source. Excluding it **from `git archive`**
+takes it out of the dist zip only. That is `php-client/.gitattributes`:
+
+```
+/pda-spike      export-ignore
+/vectors-gen    export-ignore
+/tests          export-ignore
+/conformance    export-ignore
+/phpunit.xml    export-ignore
+/.gitattributes export-ignore
+```
+
+`git archive` is what GitHub serves and what Packagist hands Composer as the
+dist zip, which is how essentially every `composer require` of this package
+will arrive. Cloning the split repository, or `composer install
+--prefer-source`, still gets everything. That is the line worth drawing: the
+record stays with the source, and the install gets the library.
+
+`composer.lock` deliberately stays. It is committed here for a reproducible
+dev install, Composer ignores a dependency's lock file outright, and excluding
+it would buy nothing. `composer.json`'s `autoload-dev` still names the now
+absent `tests/`, which is correct and not an oversight — dev autoload rules of
+a dependency are never used, and `composer validate --strict` and
+`composer dump-autoload --no-dev` were both run against the dist shape to
+confirm it. What ships is the licences, the README, `composer.json`,
+`composer.lock` and `src/Core`.
+
+Two mechanical notes, both measured rather than assumed. `export-ignore` on a
+*directory* excludes the whole subtree, even though `git check-attr` on a file
+inside it reports the attribute unspecified — check-attr answers per path and
+does not inherit, `git archive` prunes at the directory entry. And this file
+is itself inside the prefix, so it splits with everything else and lands at
+the split repository's root, where the leading slashes resolve; each path
+anchors to the directory holding the file, which is `php-client` here and the
+package root there — the same two directories either way.
+
+`bin/split-php-client` extracts the split with `git archive`, so what it
+verifies *is* the dist zip. Its check is a **whitelist** of the top level, not
+a list of things to keep out, and that is deliberate: the exclusion is a few
+lines in one file that nothing else in the repository would notice if they
+were deleted, and the failure worth guarding against is the *next* thing added
+under `php-client/` with no line written for it — which a blocklist cannot
+see. Adding to the package is then a deliberate edit to the script, the same
+reasoning that leaves publishing unscripted. It still prints the top level on
+every run.
 
 ## Licence
 

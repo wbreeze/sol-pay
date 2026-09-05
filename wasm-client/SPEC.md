@@ -710,16 +710,25 @@ compiles a legacy transaction message in any language -- `core::tx` pairs
 instructions in the order the program requires, which is ordering and not
 wire format. The sentence did not change; the population it applies to did.
 `SolPay\Tx` was built on 2026-09-04 and its output agrees byte-for-byte with
-`solana-message` and `solana-transaction` on every conformance run. The
-amendment is still **held**, and on purpose: agreeing with the reference
-implementation on three fixed cases is not the same claim as a validator
-accepting a transaction, and no signature in those vectors is real. Once the
-demonstrator has settled a metering call against devnet, "it builds
-instructions and decodes bytes" becomes "it builds instructions and the
-message that carries them, and decodes bytes" -- and every verb above
-survives it unchanged: still no signing, no signature verification, no
-sign-in message construction, no RPC, no retries, no storage, no routing, no
-rendering, no session management.
+`solana-message` and `solana-transaction` on every conformance run. On
+2026-09-05 a validator accepted one of its transactions for the first time:
+the demonstrator's `bin/devnet-smoke` compiled, signed and sent a System
+transfer on devnet, signature `jueKu9Tq...AiZbpw2`. That retires the
+objection this paragraph rested on -- no signature in those vectors is real,
+no blockhash was ever current, nothing had paid a fee -- since one now is,
+one was, and something has.
+
+The amendment is still **held**, and the condition left is the one this
+paragraph already named rather than a new one. A System transfer exercises
+the message format and nothing else: no Anchor discriminator, no CPI, no
+`meter_and_settle` account list. What has been shown is that the encoder
+produces transactions a validator accepts, which is not yet the claim that
+this library's own instruction rides it correctly. Once the demonstrator has
+settled a metering call against devnet, "it builds instructions and decodes
+bytes" becomes "it builds instructions and the message that carries them, and
+decodes bytes" -- and every verb above survives it unchanged: still no
+signing, no signature verification, no sign-in message construction, no RPC,
+no retries, no storage, no routing, no rendering, no session management.
 
 ## 8. Drift control
 

@@ -260,10 +260,13 @@ touching it** — because both are invisible until a vector disagrees with you
 rather than by the order the instructions named them, and that the fee payer
 is prepended rather than sorted and is forced writable even when the
 instruction marked it readonly. `php-client/README.md`, "Transaction
-assembly", carries the rest. What remains open there is devnet: nothing in
-those vectors has a real signature, a current blockhash, or has paid a fee,
-so the demonstrator is the first time this code meets a chain — and SPEC §7's
-amendment is held until it has.
+assembly", carries the rest. **Devnet has accepted its output since
+2026-09-05** — the demonstrator's `bin/devnet-smoke` compiled, signed and
+sent a System transfer, which is the first time any of this met a chain. What
+remains open is narrower than it was: that transfer carried one signature and
+no Anchor instruction, so `meter_and_settle` itself has still never been
+compiled by this package and submitted. SPEC §7's amendment is held for that,
+which is what §7 has always said it was waiting for.
 
 Regenerate and re-check after touching `state.rs`, `errors.rs`, `pda.rs`, or
 `ix.rs`:

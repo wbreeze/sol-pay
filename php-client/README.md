@@ -360,19 +360,36 @@ arithmetic already accepted here.
    are gone, replaced by one diagnostic — a mismatch reports the byte and the
    section it falls in ("byte 4, in account key 0"), because a hex diff of
    348 bytes says only "differs".
-3. **Prove it against devnet in the demonstrator — still open.** The
-   conformance run proves `Tx` agrees byte-for-byte with `solana-message` and
-   `solana-transaction` on three fixed cases. It does not prove a validator
-   accepts what comes out, and those are different claims: no signature here
-   is real, no blockhash here was ever current, and nothing has paid a fee.
-   With `meter_and_settle` signed by the site authority, compilation sits on
-   the metering path rather than only in first-run setup, so the demonstrator
-   exercises it on every settling request — the best evidence available, and
-   the first time this code meets a chain.
+3. **Prove it against devnet in the demonstrator — half done, 2026-09-05.**
+   The conformance run proves `Tx` agrees byte-for-byte with `solana-message`
+   and `solana-transaction` on three fixed cases. It does not prove a
+   validator accepts what comes out, and those are different claims: no
+   signature there is real, no blockhash there was ever current, and nothing
+   has paid a fee.
+
+   One now has. The demonstrator's `bin/devnet-smoke` compiles, signs and
+   sends a System transfer through `Tx::compile` and `Tx::wire`, and devnet
+   accepted it — header `1/0/1`, a 150-byte message, signature
+   `jueKu9Tq...AiZbpw2`. The transfer is chosen rather than convenient: the
+   fee payer signs and is written, the recipient is written and does not
+   sign, and the System program is readonly and neither, so three of the four
+   header partitions and the fee-payer-prepended rule are all on the wire.
+
+   **The other half is `meter_and_settle`.** That transfer carries no Anchor
+   discriminator, no CPI and none of this package's own account lists, so what
+   is proven is the encoder rather than the instruction on top of it. With
+   `meter_and_settle` signed by the site authority, compilation sits on the
+   metering path rather than only in first-run setup, so the demonstrator will
+   exercise it on every settling request — the best evidence available, and
+   the thing SPEC §7 is actually waiting for.
+
 4. **Then amend SPEC §7's sentence**, which §7 already carries as pending.
-   Held until step 3, deliberately: §7 describes what the library does, and
-   "compiles the message that carries them" is a claim better made after a
-   validator has accepted one.
+   Held until step 3 is finished — its second half, not its first. §7
+   describes what the library does, and "compiles the message that carries
+   them" is a claim better made after a validator has accepted a *metering*
+   transaction rather than merely a transaction. §7 now records the devnet
+   acceptance of 2026-09-05 and states the remaining condition in those
+   terms.
 
 ### The scope boundary, stated so it is not a surprise later
 

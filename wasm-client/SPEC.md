@@ -693,9 +693,9 @@ a `Pubkey` or accepts one.
 ## 7. What the library never does
 
 Signing, signature verification, sign-in message construction, RPC, retries,
-storage, routing, rendering, session management. It builds instructions and
-decodes bytes. The integrator owns the wallet adapter, the connection, the
-session, and the page.
+storage, routing, rendering, session management. It builds instructions and the
+message that carries them, and decodes bytes. The integrator owns the wallet
+adapter, the connection, the session, and the page.
 
 This is the boundary integrators get wrong, so it is stated here and repeated
 in the README.
@@ -726,16 +726,51 @@ front of the program that defines it -- discriminator, account list and
 flags, borsh arguments, and a PDA the program re-derives from its own seeds
 and would have refused had it disagreed.
 
-The amendment is still **held**, and the condition left is the one this
-paragraph already named rather than a new one: a *metering call*. Nothing
-submitted so far carries a cross-program invocation, a delegate or a
-transfer, and `initialize_site` runs once at setup rather than on the path a
-reader takes. Once the demonstrator has settled a metering call against
-devnet, "it builds instructions and decodes
-bytes" becomes "it builds instructions and the message that carries them, and
-decodes bytes" -- and every verb above survives it unchanged: still no
-signing, no signature verification, no sign-in message construction, no RPC,
-no retries, no storage, no routing, no rendering, no session management.
+On 2026-09-07 the demonstrator metered a reader's page view.
+`meter_and_settle` -- `Ix`'s own instruction, built by `php-client`, compiled
+by `SolPay\Tx`, signed by the site authority -- was accepted by the deployed
+program, signature `4M6NhLY5...tkstxRi`. That is a third distinct result and
+worth separating from the second the way the second was separated from the
+first: `initialize_site` runs once at setup, while this one sits **on the path
+a reader takes**, and it put the eight-account list, the metering
+discriminator and a borsh `u32` in front of the program that defines them.
+
+Later that day a metering call **settled**, which is the condition this
+paragraph has been holding since it was written. Signature
+`2N6VoKtP...pkG23ASS`, moving 0.15 DEMO into the site's treasury. That is the
+one that carries what the other three could not: a cross-program invocation, a
+delegate, and a transfer.
+
+**So the amendment is made, above.** "It builds instructions and decodes
+bytes" now reads "it builds instructions and the message that carries them,
+and decodes bytes" -- and every verb in the first paragraph survives it
+unchanged: still no signing, no signature verification, no sign-in message
+construction, no RPC, no retries, no storage, no routing, no rendering, no
+session management. The library compiles a message; it still does not send
+one, sign one, or know what happened to it.
+
+Two things about how the citation was obtained are worth keeping, because the
+condition was nearly discharged on weaker evidence than this.
+
+The first is that "a metering call was accepted" and "a metering call settled"
+are different claims, and only the second one carries the transfer. A
+`meter_and_settle` whose unpaid balance has not crossed the collection
+threshold increments `used` and moves nothing. The accepted call named above
+was the former. For as long as it took to go and look, the difference sat
+between an operator's correct recollection that money had moved and any record
+of *which* transaction moved it -- and the second is what a specification can
+cite.
+
+The second is that the demonstrator does not keep such a record on purpose --
+its own §10.4 enumerates its stores, and a per-wallet log of metering
+transactions is the reading history that design exists to avoid holding. So
+the evidence was read back off the chain instead, by a script that walks the
+treasury's transactions and reports the token-balance delta of each. What it
+showed was also the demonstrator's §7.4 confirmed on chain for the first
+time: settle, no transfer, settle, no transfer, settle, alternating exactly as
+that section's table predicted. Two seven-view advances accumulate 0.14 against
+a 0.10 threshold, which is why the later settles moved 0.14 and the first moved
+0.15 -- it had a single metered page view sitting under it.
 
 ## 8. Drift control
 

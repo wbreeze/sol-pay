@@ -261,17 +261,28 @@ rather than by the order the instructions named them, and that the fee payer
 is prepended rather than sorted and is forced writable even when the
 instruction marked it readonly. `php-client/README.md`, "Transaction
 assembly", carries the rest. **Devnet has accepted its output since
-2026-09-05**, twice and in that order: `bin/devnet-smoke` sent a System
-transfer, and then the demonstrator's first-run setup sent `initialize_site`
-against the deployed program. The second is the one that matters here — it is
-`Ix`'s own instruction, so the discriminator, the five-account list and its
-flags, the borsh `u64` arguments and `Pda::siteAddress` were all checked by
-the program rather than by a vector.
+2026-09-05**, three times and in that order: `bin/devnet-smoke` sent a System
+transfer; the demonstrator's first-run setup sent `initialize_site` against
+the deployed program; and on 2026-09-07 the demonstrator metered a reader's
+page view with `meter_and_settle`, signature `4M6NhLY5...tkstxRi`. The second
+proved this package's own instruction — discriminator, five-account list and
+flags, borsh `u64` arguments and `Pda::siteAddress`, all checked by the
+program rather than by a vector. The third moved that from setup onto **the
+path a reader takes**.
 
-What remains is `meter_and_settle`: nothing submitted so far carries a CPI, a
-delegate or a transfer, and `initialize_site` runs once at setup rather than
-on the metering path. SPEC §7's amendment is held for that, which is what §7
-has always said it was waiting for.
+And then, the same day, one of them **settled**: signature
+`2N6VoKtP...pkG23ASS`, 0.15 DEMO into the treasury, carrying the cross-program
+invocation, the delegate and the transfer that none of the first three did. **SPEC §7's amendment is made** —
+"it builds instructions and the message that carries them, and decodes bytes"
+— and every verb around it survives unchanged.
+
+Worth keeping from how that was verified: a metering call that is *accepted*
+and one that *settles* are different claims, and only the second carries the
+transfer, because a call below the collection threshold increments `used` and
+moves nothing. The demonstrator keeps no log of its metering transactions —
+its §10.4 forbids exactly that store — so the citation was read back off the
+chain with `bin/last-settle`, which walks the treasury's transactions and
+reports each one's token-balance delta.
 
 Regenerate and re-check after touching `state.rs`, `errors.rs`, `pda.rs`, or
 `ix.rs`:

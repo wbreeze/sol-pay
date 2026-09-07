@@ -360,7 +360,7 @@ arithmetic already accepted here.
    are gone, replaced by one diagnostic — a mismatch reports the byte and the
    section it falls in ("byte 4, in account key 0"), because a hex diff of
    348 bytes says only "differs".
-3. **Prove it against devnet in the demonstrator — half done, 2026-09-05.**
+3. **Prove it against devnet in the demonstrator — done, 2026-09-07.**
    The conformance run proves `Tx` agrees byte-for-byte with `solana-message`
    and `solana-transaction` on three fixed cases. It does not prove a
    validator accepts what comes out, and those are different claims: no
@@ -385,20 +385,36 @@ arithmetic already accepted here.
    `Pda::siteAddress`, which the program re-derives from its own seeds and
    would have rejected as a seeds-constraint failure had it disagreed.
 
-   **The half that is left is `meter_and_settle`.** Neither transaction so far
-   carries a CPI, a delegate, or a transfer, and `initialize_site` runs once at
-   setup rather than on the metering path. With `meter_and_settle` signed by
-   the site authority, compilation sits on that path and the demonstrator
-   exercises it on every settling request — the best evidence available, and
-   the thing SPEC §7 is actually waiting for.
+   **Then `meter_and_settle`, on 2026-09-07.** The demonstrator metered a
+   reader's page view: signature `4M6NhLY5...tkstxRi`, the instruction built by
+   `Ix::meterAndSettle`, compiled by `Tx`, signed by the site authority. This
+   is the one that moves compilation off the setup path and onto the path a
+   reader takes — the demonstrator now compiles a message on every metered
+   request that is not already covered by a view grant.
 
-4. **Then amend SPEC §7's sentence**, which §7 already carries as pending.
-   Held until step 3 is finished — its second half, not its first. §7
-   describes what the library does, and "compiles the message that carries
-   them" is a claim better made after a validator has accepted a *metering*
-   transaction rather than merely a transaction. §7 now records the devnet
-   acceptance of 2026-09-05 and states the remaining condition in those
-   terms.
+   **And then one settled, the same day.** Signature
+   `2N6VoKtP...pkG23ASS`, 0.15 DEMO into the treasury. That is the call that carries a cross-program invocation, a
+   delegate and a transfer, and it is the one SPEC §7's condition was written
+   for — an accepted metering call and a settling one are different claims,
+   since a call below the collection threshold increments `used` and moves
+   nothing.
+
+   The citation had to be read back off the chain, because the demonstrator
+   deliberately keeps no log of its metering transactions: its §10.4
+   enumerates its stores and a per-wallet record of these would be the reading
+   history that whole design avoids. `bin/last-settle` there walks the
+   treasury's transactions and reports each one's token-balance delta, which
+   is how the signature above was found — and which incidentally showed the
+   settle firing on alternate advances, exactly as that document's §7.4
+   predicted.
+
+4. **Then amend SPEC §7's sentence — done, 2026-09-07.** It was held until
+   step 3 finished: §7 describes what the library does, and "compiles the
+   message that carries them" is a claim better made after a validator has
+   accepted a *metering* transaction rather than merely a transaction, and
+   better still after one has settled. §7 now reads "it builds instructions
+   and the message that carries them, and decodes bytes", and records all four
+   devnet results with the condition each one did and did not discharge.
 
 ### The scope boundary, stated so it is not a surprise later
 

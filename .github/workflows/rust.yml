@@ -77,16 +77,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # prefix-key bumped once, deliberately: a run before the Solana
-      # tooling pin below cached ~/.cargo/bin and this job's target/ under
-      # the old key, and Swatinem/rust-cache restored that stale cache into
-      # a run that otherwise had the fix, producing a confusing, different
-      # failure than the one being fixed. This forces one clean cache;
-      # revert to the plain default once that's landed and confirmed.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: pay-on-chain
-          prefix-key: v1-rust
 
       # Pinned rather than "stable": stable currently resolves to a release
       # whose default platform-tools (v1.51) bundles rustc 1.84, which

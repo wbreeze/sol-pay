@@ -3,7 +3,7 @@
 # a green run means those exact versions build and pass — no reader has to
 # verify a pin by hand. Upstream drift is a separate, scheduled concern; see
 # dependency-drift.yml.
-name: rust
+name: program-tests
 
 on:
   push:

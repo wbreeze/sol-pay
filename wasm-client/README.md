@@ -57,6 +57,27 @@ const ixs = [
 const same = pay.approveAndOpen(payerAta, mint, payer, site, limit, 6);
 ```
 
+That match is an agreement neither package declares -- this crate depends on no
+JavaScript at all, and you pick kit for yourself -- so it is checked rather than
+assumed. The published `package.json` carries the kit range this release was
+checked against as an **optional peer dependency**, which is a statement about
+consumption and not an install: nothing is pulled, and you are free to ignore
+it. If you vendor kit separately, that field is how you ask whether your copy
+and this one were ever tested together.
+
+What earns it is `conformance/kit.mjs` (`bin/test-kit`, and the `kit agreement`
+workflow): kit's own `AccountRole` constants against the bit pattern this crate
+encodes, and kit's legacy message compilation against `solana-message`'s --
+header, account set, every signer and writable bit, and each instruction's
+account list resolved back to addresses.
+
+Compared that way and not byte-for-byte, deliberately: **intra-partition
+account order is not canonical**. `solana-message` orders by raw pubkey bytes,
+kit by the base58 string, and the two disagree on where the SPL Token program
+id lands. Both messages are valid and mean the same thing. If you compile the
+same transaction on a server and in the browser, do not expect the bytes to
+match. SPEC.md §8.2 has the measurement.
+
 ### Four exports that are not ours
 
 `sol_pay_client.d.ts` also declares `Pubkey`, `Hash`, `Instruction` and

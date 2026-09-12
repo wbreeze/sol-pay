@@ -213,6 +213,35 @@ format. SPEC §7 records the same finding from the specification's side: "the
 integrator owns the connection" cost nothing for Rust or Node, and the
 sentence did not change, the population it applies to did.
 
+### One valid ordering, not the only one
+
+Added 2026-09-12, after `wasm-client/conformance/kit.mjs` measured it against
+`@solana/kit` 8.3.0.
+
+`Tx::compile` agrees with `solana-message` byte for byte, on all three vectors,
+and that stays the standard this package is held to. But it is worth knowing
+what that agreement is *not*: it is not a claim that those are the only correct
+bytes for that transaction.
+
+**Inside a header partition the account order is not canonical.**
+`solana-message` builds its key list from a `BTreeMap<Pubkey, _>`, so it ascends
+by raw 32-byte value — which is the rule "The order this has to happen in"
+below spends its length on, because getting it wrong is invisible. `@solana/kit`
+ascends by the base58 *string* instead. The two agree wherever those orders
+agree and disagree on exactly one key in these vectors: the SPL Token program
+id, whose raw bytes sort early and whose base58 spelling sorts late. Same
+header, same account set, same signer and writable bit on every key, same
+resolved instructions — different bytes.
+
+Both are valid; a validator checks the partition invariant and resolves
+instruction accounts by index, and each message is self-consistent. So the rule
+for anyone holding both halves: **never compare a `Tx::compile` message with a
+browser-compiled one byte-for-byte** — not as a "confirm what you are signing"
+check, not as a cache key, not to deduplicate. Compare the resolved
+transaction: header, account set, per-key flags, and each instruction's account
+list resolved back through its own key table. `wasm-client/SPEC.md` §8.2 has
+the measurement and `wasm-client/conformance/kit.mjs` does it that way.
+
 ### Why not an existing PHP Solana SDK
 
 There is prior art. Checking it is what settles the question rather than

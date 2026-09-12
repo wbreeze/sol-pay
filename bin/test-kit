@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+#
+# Does @solana/kit still read this library's instructions the way they mean?
+#
+#   bin/test-kit
+#
+# A third kind of check, and the distinction is worth keeping straight because
+# the repository already has two that sound like it:
+#
+#   bin/test-node   the *loading contract*. Node runs the same wasm the browser
+#                   runs, so it cannot disagree with the crate. SPEC §3.1.
+#   bin/test-php    a *second implementation* against the crate. It can
+#                   disagree, and a divergent port signs the wrong thing.
+#                   SPEC §8.1.
+#   bin/test-kit    this library against an *outside package neither side
+#                   pins*. SPEC §8.2.
+#
+# `src/lib.rs` serialises instructions as kit's `IInstruction`, `role` and all,
+# under a doc comment saying so -- and nothing declares that anywhere a package
+# manager can see it. Cargo.toml names no JavaScript dependency; the bundle has
+# no `import` in it; a consumer picks kit for itself. This is the only place the
+# two are ever in one process together.
+#
+# It needs the network, which the other two do not: the point is the real kit
+# from npm, at the range conformance/package.json declares.
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PKG="$ROOT/wasm-client/pkg"
+CONF="$ROOT/wasm-client/conformance"
+VECTORS="$ROOT/php-client/vectors-gen/vectors.json"
+
+command -v node >/dev/null 2>&1 || { echo "error: node not found." >&2; exit 1; }
+command -v npm  >/dev/null 2>&1 || { echo "error: npm not found."  >&2; exit 1; }
+
+if [ ! -f "$PKG/sol_pay_client_bg.wasm" ]; then
+  echo "==> $PKG missing; building the browser bundle first"
+  "$ROOT/bin/build-rust" --client
+fi
+
+# Not rebuilt when it is merely present -- that is bin/test-node's rule and
+# there is no reason for a different one here. But this job also reads
+# pkg/package.json for the peer range that `bin/build-rust --client` writes, so
+# a bundle left over from before that step existed fails the first check with
+# "(absent)". That failure is correct and the fix is a rebuild; saying so here
+# saves someone reading it as a kit problem.
+
+# Same file, same rule as bin/test-node and bin/test-php: regenerated every run.
+# Three scripts now write and read one vectors.json, and the moment one of them
+# skips, running that one alone after a generator change checks against a vector
+# an older generator wrote -- and the failure arrives dressed as somebody else's
+# bug. The redirect truncates first, so a generator that dies mid-run leaves an
+# empty file rather than a stale one that still parses.
+echo "==> generating conformance vectors"
+( cd "$ROOT/php-client/vectors-gen" && cargo run --release --locked ) > "$VECTORS"
+
+# `npm ci` when there is a lock to obey, `npm install` when there is not -- and
+# `npm install` writes one, so the first run on a fresh clone produces the lock
+# and every run after it is reproducible. Commit that lock: it is the same
+# argument as `--locked` everywhere else here, and without it this job can go
+# red on a morning when nobody committed anything.
+echo "==> installing @solana/kit"
+if [ -f "$CONF/package-lock.json" ]; then
+  ( cd "$CONF" && npm ci --no-audit --no-fund )
+else
+  echo "    no package-lock.json yet; npm install will write one -- commit it"
+  ( cd "$CONF" && npm install --no-audit --no-fund )
+fi
+
+echo "==> kit agreement"
+node "$CONF/kit.mjs" "$PKG" "$VECTORS"
+
+echo "done."

@@ -39,6 +39,12 @@ bin/update-locks [--program|--client]   # cargo update inside ranges, then test
 A single test: `bin/test-rust <name substring>`, or from inside a crate
 directory, `cargo test --locked <substring>`.
 
+`bin/test-node`, `bin/test-php` and `bin/test-kit` are the three conformance
+runs, and they answer three different questions — a loading contract, a second
+implementation, and an outside package neither side pins. Their own headers say
+which is which; don't merge them. `bin/test-kit` is the one that needs the
+network, and the one that needs `node` and `npm`.
+
 `bin/test-rust` builds the program if `pay-on-chain/target/deploy/pay_on_chain.so`
 is missing, but it does **not** rebuild after a program source change — run
 `bin/build-rust --program` yourself when you edit the program.
@@ -350,6 +356,19 @@ reproduced.
   `php-client/src/Core` on the floor `composer.json` declares and on the
   current PHP. This one *is* drift control: a second implementation can
   disagree with the crate. `bin/test-php` by hand. See SPEC §8.1.
+- `.github/workflows/kit-agreement.yml` — the only place this library and a
+  real `@solana/kit` are in one process. `src/lib.rs` emits kit's
+  `IInstruction`, `role` bit pattern included, and **neither package declares
+  the other**, so nothing else can notice that agreement breaking. Checks the
+  shape of all three transaction builders, kit's `AccountRole` constants
+  against the bit pattern `lib.rs` hardcodes, and kit's legacy compilation of
+  the three transaction vectors against `solana-message`'s — as transactions,
+  **not** as bytes: intra-partition account order is not canonical (rust orders
+  by raw pubkey bytes, kit by base58 string), so the encodings legitimately
+  differ while the header, account set, flags and resolved instructions match.
+  Do not "fix" that by demanding byte equality; SPEC §8.2 carries the
+  measurement. A weekly advisory job runs the same thing against
+  `@solana/kit@latest` and is allowed to fail. `bin/test-kit` by hand.
 
 The two conformance workflows generate vectors from the **published** crate
 rather than from this tree, which is why both also watch `pay-on-chain/programs/`
@@ -370,8 +389,13 @@ crate moving.
 - Version facts belong in a lock file or a CI job, not in a paragraph asking
   the reader to verify them by hand.
 - `wasm-client/pkg/`, both `target/` directories, `php-client/vectors-gen/target/`,
-  and `php-client/vectors-gen/vectors.json` are gitignored build/generated
-  output — never edit them. `wasm-client/LICENSE-*` and `php-client/LICENSE-*`
+  `wasm-client/conformance/node_modules/` and
+  `php-client/vectors-gen/vectors.json` are gitignored build/generated
+  output — never edit them. One field in `pkg/package.json` is *written* rather
+  than generated: `bin/build-rust --client` copies the `@solana/kit` range out
+  of `wasm-client/conformance/package.json` into `peerDependencies`. That file
+  is the single source for the range — publishing it and testing against it use
+  the same string — so change it there and nowhere else. `wasm-client/LICENSE-*` and `php-client/LICENSE-*`
   are intentional duplicates
   of the root licences so they ship inside the published artifacts.
 - `php-client/.gitattributes` decides what the Composer **dist zip** carries:

@@ -4,6 +4,11 @@ target
 # wasm-pack / wasm-bindgen output
 pkg
 
+# conformance/kit.mjs needs a real @solana/kit to check against, installed by
+# bin/test-kit from conformance/package.json. The range is the committed thing;
+# the tree it expands to is not.
+conformance/node_modules
+
 .DS_Store
 **/*.rs.bk
 SPEC.pdf

@@ -864,3 +864,93 @@ states in place rather than leaving to be discovered. The demonstrator remains
 the sharper test: a recording pins agreement at the states the harness
 reaches, and a live site reaches states it does not. `php-client/README.md`,
 "Drift control", carries the detail.
+
+### 8.2 An agreement neither side declares
+
+§8.1's drift has a version number attached to it: `php-client` depends on
+nothing here, but both halves live in this repository and a reviewer can see
+them move. There is one agreement with neither property.
+
+`src/lib.rs` serialises every instruction as `{ programAddress, accounts: [{
+address, role }], data }`, and `role` is `(is_signer << 1) | is_writable`
+under a doc comment reading "Matches kit's AccountRole". That is
+`@solana/kit`'s `IInstruction`, deliberately, and it is why the README can say
+instructions "drop straight into a transaction message".
+
+**Nothing declares it.** `wasm-client/Cargo.toml` names no JavaScript
+dependency of any kind -- the core is plain Rust and the wasm layer is
+`wasm-bindgen`, so there is nothing for a JavaScript package manager to
+resolve. The published bundle contains no `import` statement. A consumer picks
+kit for itself, at whatever version it likes, and nothing anywhere compares the
+two. So this agreement cannot break a build, fail a resolver, or show up in a
+diff. It breaks in a browser, on a message that compiled and is about to be
+signed.
+
+The numbering is the sharp end. A shape check -- do the field names match --
+would survive kit renumbering `AccountRole`, and every account this library
+emits would then claim to be writable when it meant readonly signer. The
+assertion has to be against kit's own constants, in a process that has both.
+
+Two things close it, and they are deliberately different in kind:
+
+- **A declaration.** `bin/build-rust --client` writes the range from
+  `wasm-client/conformance/package.json` into the published `pkg/package.json`
+  as an *optional* `peerDependencies` entry. Optional because the wasm needs
+  kit for nothing and `npm install sol-pay-client` should keep pulling a
+  package with no dependency graph; a peer because the statement is about
+  consumption. It is machine-readable on purpose: a consumer that vendors kit
+  separately -- the demonstrator commits it under `public/vendor/` -- can now
+  ask npm whether its copy is one this release was checked against, which was
+  previously unknowable.
+- **An assertion that earns it.** `conformance/kit.mjs`, run by `bin/test-kit`
+  and the `kit agreement` workflow, is the only place this library and a real
+  kit are in one process. It checks the shape of all three transaction
+  builders; kit's `AccountRole` constants against the bit pattern `lib.rs`
+  hardcodes, and kit's own `isSignerRole`/`isWritableRole` against the account
+  flags the vectors carry from the crate; and then the part worth the most --
+  kit's legacy compilation of §8.1's three transaction vectors against what
+  `solana-message` produced for the identical instructions. The three cases
+  were chosen for `SolPay\Tx` and reach the same branches here: an empty
+  readonly-signer partition, cross-instruction flag merging, and a fee payer
+  prepended rather than sorted. Header partitioning is where two
+  implementations of a transaction message actually disagree, and no shape
+  check can see it.
+
+#### The bytes are allowed to differ, and that is the finding
+
+The comparison above was written as byte-for-byte, the way `SolPay\Tx`'s is.
+Its first real run said otherwise, and the answer is worth more than the
+original assertion would have been.
+
+**Intra-partition account order is not canonical.** `solana-message` builds its
+key list from a `BTreeMap<Pubkey, _>` and so ascends by raw 32-byte value; kit
+ascends by the base58 *string*. On these vectors the two orders agree
+everywhere except one key -- the SPL Token program id, whose raw bytes sort
+early and whose base58 spelling sorts late -- and all three messages therefore
+differ in the bytes while agreeing on everything the bytes mean. Verified
+2026-09-12 against kit 8.3.0: identical headers, identical account sets,
+identical signer and writable bits per account, identical blockhash, and every
+instruction's program and account list identical once resolved back through
+each message's own key table.
+
+Both are valid, and a validator accepts either: the runtime checks the header
+partition invariant and resolves instruction accounts by index, and each
+message is self-consistent. The demonstrator has been sending kit-compiled
+transactions to devnet since 2026-09-07, which is the empirical half of the
+same statement.
+
+So `kit.mjs` compares *transactions* and not bytes, and records the encoding
+difference as a note on every run rather than as a failure. The rule this
+leaves for anyone building on both halves: **never compare a `SolPay\Tx`
+message to a kit message byte-for-byte** -- not as a "confirm what you are
+signing" check, not as a cache key, not to deduplicate. Compare the resolved
+transaction.
+
+`SolPay\Tx`'s own byte-for-byte vectors are unaffected. Matching
+`solana-message` exactly is one valid ordering, and it remains the one this
+repository's PHP half is pinned to.
+
+The declared range is a claim about what was *checked*, so it stays narrow. A
+weekly advisory job runs the same assertions against `@solana/kit@latest` and
+is allowed to fail: widening the range is then a decision someone makes, with
+a passing run behind it, rather than an assumption.

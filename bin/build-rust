@@ -130,6 +130,59 @@ if [ "$want_client" = 1 ]; then
   # that wants it, so the browser bundle asks.
   echo "==> wasm-pack build"
   ( cd "$ROOT/wasm-client" && wasm-pack build --target web -- --locked --features wasm )
+
+  # Declare, in the published package, which @solana/kit this release's
+  # instruction shape was asserted against.
+  #
+  # Instructions come out of this library shaped like kit's `IInstruction`,
+  # down to `role`'s bit pattern, and **neither package declares the other**:
+  # Cargo.toml names no JavaScript dependency, the bundle contains no `import`,
+  # and a consumer picks kit for itself. So the agreement is invisible to every
+  # installer on both sides, and a consumer that vendors kit separately -- the
+  # demonstrator does -- has no way to ask whether the two were ever checked
+  # together. This field is that way. `conformance/kit.mjs` is what earns it,
+  # and checks that this step still ran.
+  #
+  # An *optional peer* and not a dependency, on purpose. The wasm needs kit for
+  # nothing; `npm install sol-pay-client` should keep pulling a package with no
+  # dependency graph at all. The field is a statement about consumption, which
+  # is exactly what an optional peer dependency is for.
+  #
+  # Here rather than in a publish step because publishing is deliberately
+  # unscripted (see wasm-client/README.md) and pkg/ is gitignored: a field owed
+  # at `npm publish` time and produced nowhere would go missing on the first
+  # release nobody remembered it, and no diff would show it. Here it is a
+  # property of the build.
+  #
+  # node rather than sed: this manifest is about to be published, and editing
+  # JSON with a regex is how one gets quietly corrupted. node is already
+  # required by bin/test-node and bin/test-kit.
+  need node "Install with: brew install node"
+  echo "==> declaring the @solana/kit peer range"
+  ( cd "$ROOT/wasm-client" && node - <<'DECLARE_PEER'
+const fs = require("fs");
+
+// conformance/package.json is the single source: bin/test-kit installs from the
+// same string this publishes, so "the range we claim" and "the range we checked"
+// cannot drift apart.
+const declared = JSON.parse(fs.readFileSync("conformance/package.json", "utf8"));
+const range = (declared.devDependencies || {})["@solana/kit"];
+if (!range) {
+  console.error("error: conformance/package.json declares no @solana/kit devDependency");
+  process.exit(1);
+}
+
+const path = "pkg/package.json";
+const manifest = JSON.parse(fs.readFileSync(path, "utf8"));
+manifest.peerDependencies = { ...(manifest.peerDependencies || {}), "@solana/kit": range };
+manifest.peerDependenciesMeta = {
+  ...(manifest.peerDependenciesMeta || {}),
+  "@solana/kit": { optional: true },
+};
+fs.writeFileSync(path, JSON.stringify(manifest, null, 2) + "\n");
+console.log(`    @solana/kit ${range}, optional peer`);
+DECLARE_PEER
+  )
 fi
 
 echo "done."

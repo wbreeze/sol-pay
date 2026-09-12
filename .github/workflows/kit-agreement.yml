@@ -1,0 +1,129 @@
+# The shape agreement with @solana/kit.
+#
+# `src/lib.rs` serialises every instruction as kit's `IInstruction` -- field
+# names and `role`'s bit pattern both -- and says so in a doc comment. Nothing
+# else says it anywhere a package manager can see: `wasm-client/Cargo.toml`
+# names no JavaScript dependency, the wasm-pack bundle contains no `import`,
+# and a consumer picks kit for itself. Two packages agreeing on a shape neither
+# one declares.
+#
+# So this failing is not the same news as a version being behind. There is no
+# install that breaks, no resolver that complains and no red build anywhere
+# else: the first symptom is a compiled message that authorises the wrong
+# accounts, in a browser, with a wallet prompt already open.
+#
+# Separate from node-conformance.yml on purpose, and the difference is the same
+# one SPEC draws between §3.1 and §8.1. That job guards a *loading contract* --
+# Node runs the same wasm the browser runs and cannot disagree with the crate.
+# This one is the crate against an outside package that can. SPEC §8.2.
+name: kit agreement
+
+on:
+  push:
+    branches: [master, client]
+    paths:
+      - 'wasm-client/**'
+      - 'php-client/vectors-gen/**'
+      - 'pay-on-chain/programs/**'
+      - 'bin/**'
+      - '.github/workflows/kit-agreement.yml'
+  pull_request:
+    paths:
+      - 'wasm-client/**'
+      - 'php-client/vectors-gen/**'
+      - 'pay-on-chain/programs/**'
+      - 'bin/**'
+      - '.github/workflows/kit-agreement.yml'
+  # For the advisory job below, which has nothing to do with a commit.
+  schedule:
+    - cron: '41 6 * * 1'   # Mondays, 06:41 UTC -- after dependency drift's 06:17
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  agreement:
+    name: kit at the declared range
+    # Not on the schedule: nothing about this answer changes without a commit,
+    # because both sides of it are pinned. The Monday run is for the job below.
+    if: ${{ github.event_name != 'schedule' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # In wasm-client, so rustup reads its rust-toolchain.toml rather than the
+      # runner's default -- the same reason bin/build-rust does it there.
+      - name: Add wasm target
+        working-directory: wasm-client
+        run: rustup target add wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            wasm-client
+            php-client/vectors-gen
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+
+      # The whole thing, exactly as it runs by hand: build the bundle (which is
+      # also what writes the peer range this checks), regenerate the vectors,
+      # install kit, compare.
+      - name: bin/test-kit
+        run: ./bin/test-kit
+
+  widened:
+    # Advisory, weekly, and allowed to fail.
+    #
+    # The job above says the range still holds. This one says whether it could
+    # be wider -- or is about to need narrowing -- by running the same checks
+    # against whatever kit published most recently. A red mark here is a thing
+    # to read on a Monday, not a broken build: the declared range is a claim
+    # about what was *checked*, and it stays honest by being narrow.
+    #
+    # Same argument as dependency-drift.yml, one registry over.
+    name: kit at latest (advisory)
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Add wasm target
+        working-directory: wasm-client
+        run: rustup target add wasm32-unknown-unknown
+
+      # Deliberately no rust-cache, matching dependency drift: a cold build is
+      # the point of a scheduled canary.
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+
+      - name: Build browser bundle
+        run: ./bin/build-rust --client
+
+      - name: Generate vectors
+        working-directory: php-client/vectors-gen
+        run: cargo run --release --locked > "$GITHUB_WORKSPACE/vectors.json"
+
+      # Ignoring the lock and the range both, which is what makes this the
+      # canary rather than a second copy of the job above.
+      - name: Install the newest kit
+        working-directory: wasm-client/conformance
+        run: npm install --no-audit --no-fund --no-save @solana/kit@latest
+
+      # kit.mjs's first check compares pkg/package.json's peer range against
+      # conformance/package.json's, and both are still the declared one here --
+      # so it passes, and what this job actually reports is whether the newest
+      # kit still agrees about roles and still compiles to the same bytes.
+      - name: Agreement against latest
+        run: node wasm-client/conformance/kit.mjs wasm-client/pkg vectors.json

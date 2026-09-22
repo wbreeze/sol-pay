@@ -5,7 +5,9 @@ block chain ecosystem.
 
 ## What is here
 
-Two Rust crates, and one PHP port:
+sol-pay is a metering program on Solana, and a client library that a site
+uses to build the program's instructions and read its accounts. Two Rust
+crates, and one PHP port:
 
 - `pay-on-chain` — the metering program, built with the
   [Anchor framework][anchor], and its LiteSVM test suite.

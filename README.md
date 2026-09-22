@@ -106,8 +106,14 @@ declares and so the one worth checking.
 The payment model is that someone with a wallet identifies with the wallet and
 navigates content. The wallet pays for what they use-- a fee per page view. The
 wallet owner sets a limit amount on total charges.  They sign a contract
-allowing incremental charges up to the limit.  The site charges the wallet
-when enough usage has accumulated to make worthwhile a transfer transaction.
+allowing incremental charges up to the limit.  The site raises a usage
+counter on every page view and moves money only when the unpaid total reaches
+a collection threshold it set. The transfer rides inside the same metering
+call, so the threshold saves no transactions and no fees; what it saves is
+repeated writes to the site's treasury account, and it keeps most metering
+calls unable to fail. `wasm-client/SPEC.md` §4.6 has the argument and what
+the threshold costs the site.
+
 The site asks to refresh the limit when the wallet owner has reached the
 spending limit they have set.
 

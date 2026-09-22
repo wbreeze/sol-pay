@@ -334,6 +334,49 @@ from `getAccountInfo` and says whether it matches. Moving a required argument
 into state removes nine chances to get it wrong and adds one; that method is
 the one.
 
+### 4.6 Why there is a collection threshold
+
+Written 2026-09-22, because the reasoning had never been recorded and the
+README's summary of it was wrong.
+
+`meter_and_settle` carries the transfer as a cross-program invocation inside
+the same instruction that raises `used`. So the threshold does **not** save
+transactions or fees: a site settling on every view sends the same number of
+transactions, and pays the same fees, as a site settling on every tenth. The
+README said the site charges "when enough usage has accumulated to make
+worthwhile a transfer transaction", which invites exactly that mistake.
+There is no transfer transaction.
+
+What the threshold does buy, in the order the argument is worth making:
+
+- **It keeps writes off the treasury.** A settling call writes the site's one
+  treasury token account. The runtime serializes transactions that write the
+  same account, so every settle queues behind every other settle for that
+  site. A call that only counts writes that reader's own contract account,
+  and no two readers share one. At a threshold of ten page views, nine calls
+  in ten stay out of that queue. Seen from outside, it is also a tenth of the
+  scheduling capacity spoken for.
+- **It keeps most calls unable to fail.** A transfer can be refused: a short
+  balance, an approval that no longer covers the amount, a frozen account. A
+  counting call has nothing to refuse. Settling on every view puts every page
+  view behind a refusal that a site then has to explain to a reader mid-read.
+- **It pays per-transfer costs less often.** A Token-2022 mint may carry a
+  transfer fee or a transfer hook. Both are charged per transfer rather than
+  per view, and neither is the integrator's to change.
+
+**What it costs the site.** The unpaid residue is earned and uncollected. It
+is bounded below the threshold by construction (§4.4), closing forgives it,
+and it is the amount at risk if the payer's approval is revoked or replaced
+before the next settle. The threshold is therefore a trade the site makes
+against its own float, and where to set it is site policy under §2: the
+library takes the number and has no view on it.
+
+**The contention claim is reasoning, not a measurement**, and it should stay
+labelled that way. Making the queue visible would mean pushing enough
+concurrent settles through one treasury to look like an attack on a public
+endpoint, and a local validator does not reproduce the scheduler this claim
+is about.
+
 ## 5. Two published artifacts
 
 Decided 2026-08-31, packaged 2026-09-01.

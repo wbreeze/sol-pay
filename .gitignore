@@ -9,3 +9,9 @@
 # settings.json or a project skill can be committed later without first having
 # to notice that a blanket ignore is hiding it.
 .claude/settings.local.json
+
+# The context brief and its state file, rewritten by a scheduled routine on
+# each run. They describe the working tree rather than belong to it, and
+# committing them would add a commit's worth of churn every time it fires.
+.claude/brief-state.json
+.claude/context-brief.md

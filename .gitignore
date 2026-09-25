@@ -15,3 +15,6 @@
 # committing them would add a commit's worth of churn every time it fires.
 .claude/brief-state.json
 .claude/context-brief.md
+
+README.pdf
+SPEC.pdf

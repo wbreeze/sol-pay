@@ -143,9 +143,11 @@ In the state diagram, the happy path has bold lines. It goes like this:
 - viewer navigates to metered content, and the site knows their wallet address
 - server derives the contract address from the site and that wallet address,
   and reads the account
-- server increments the usage by the page view amount
-- if the viewer has accumulated sufficient unpaid usage, the server
-  invokes a transfer from the viewer's wallet
+- server makes one metering call, which raises the usage by the page view
+  amount
+- that same call moves money only when the unpaid total has reached the
+  collection threshold. The transfer is a cross-program invocation inside the
+  metering instruction rather than a transaction of its own
 - the server delivers the metered page
 
 Viewers the site cannot place go to the set-meter page. It includes details
@@ -157,14 +159,27 @@ that it did.
 The dialog and the server must enforce a minimum for
 the limit amount that is some multiple of the page view amount.
 A multiple of one does not make much sense. Forty or fifty multiple yields a
-better minimum. Also, the minimum should be greater than the threshold
-amount for making a transfer transaction from the viewer's wallet.
+better minimum. The program itself requires the minimum to exceed the
+collection threshold and refuses `initialize_site` otherwise
+(`MinimumBelowThreshold`): a minimum at or below the threshold would let a
+payer sign up for less than a single collection, so the first settle could
+never fire within their limit.
 
 With the account set-up and authorized, the viewer returns to the happy path.
 
 When a viewer reaches their limit, the server shows them a screen that
-provides a wrapup of the usage. It offers to renew the limit, or a new limit,
-or to delete the contract after a transfer transaction for unpaid usage.
+provides a wrapup of the usage. It offers to renew the limit, at the same
+amount or a new one, or to close the contract.
+
+Closing forgives whatever is unpaid. That is a decision rather than an
+omission. A transfer can always be refused -- a short balance, an approval
+revoked or replaced, a frozen account -- and a close is where those are most
+likely, so a close carrying a transfer could fail and leave the payer unable
+to leave. `close_contract` therefore emits `Closed { forgiven }` and moves no
+money. A site that wants the residue settles it with a metering call
+beforehand, and that is possible only once the unpaid total has reached the
+collection threshold. Below the threshold the residue is discarded.
+`wasm-client/SPEC.md` §4.6 says what that costs the site.
 
 ## Licence
 

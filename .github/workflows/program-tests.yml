@@ -8,9 +8,9 @@ name: program-tests
 on:
   push:
     branches: [master, client]
-    paths: ['pay-on-chain/**', 'wasm-client/**', 'bin/**', '.github/workflows/rust.yml']
+    paths: ['pay-on-chain/**', 'wasm-client/**', 'bin/**', '.github/workflows/program-tests.yml']
   pull_request:
-    paths: ['pay-on-chain/**', 'wasm-client/**', 'bin/**', '.github/workflows/rust.yml']
+    paths: ['pay-on-chain/**', 'wasm-client/**', 'bin/**', '.github/workflows/program-tests.yml']
   workflow_dispatch:
 
 env:

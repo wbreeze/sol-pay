@@ -496,18 +496,22 @@ since the spike is a record, not a dependency.
 
 ## Publishing
 
-**Published 2026-09-05, `v0.1.0`.** It stayed packaged-but-unpublished until
-then on purpose — the same reasoning `wasm-client/README.md`'s publishing
-section gives: rare, irreversible, and worth a deliberate decision rather than
-a side effect of finishing the code. What follows is the mechanism, which is
-unusual enough to be worth reading before the second release.
+**First published 2026-09-05; the current release is `v0.1.2`.** It stayed
+packaged-but-unpublished until then on purpose — the same reasoning
+`wasm-client/README.md`'s publishing section gives: rare, irreversible, and
+worth a deliberate decision rather than a side effect of finishing the code.
+What follows is the mechanism, which is unusual enough to be worth reading
+before the next release. Packagist lists `v0.1.0` and `v0.1.2`; `v0.1.1` was a
+mis-tag that duplicated `v0.1.0`'s tree, and "Publishing a version" below
+records how, because the way to avoid repeating it is a step in that
+procedure.
 
-What the tag actually shipped, confirmed against `git archive v0.1.0` in a
-clone of the mirror: the two licences, this README, `composer.json`,
+What the first tag actually shipped, confirmed against `git archive v0.1.0` in
+a clone of the mirror: the two licences, this README, `composer.json`,
 `composer.lock`, `.gitignore` and `src/Core`. Nothing else — see "What the
-package ships" above for why, and note that Packagist's recorded dist and
-source reference for `v0.1.0` is `1431093`, the mirror's tag, not a commit in
-the development repository.
+package ships" above for why. Note too that Packagist's recorded dist and
+source reference is the mirror's tag rather than a commit in the development
+repository: `1431093` for `v0.1.0`, `2a56af8` for `v0.1.2`.
 
 **Packagist versioning needs more than a tag.** Unlike `cargo publish`/`npm
 publish`, which package whatever the manifest says at the moment you run them,

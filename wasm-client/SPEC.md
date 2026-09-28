@@ -1,10 +1,5 @@
 # sol-pay-client — API specification
 
-Status: draft, revised 2026-09-01. §4.5, §5 and §6.1 through §6.5 are
-implemented; §6.6 ships nothing, by decision. Published to crates.io and npm
-as 0.1.0 on 2026-09-01.
-
-
 This specifies the client library that a site integrates. It is the companion
 to `state-machine.plantuml` at the repository root, which remains the
 authoritative description of the flow. Where this document and the diagram
@@ -377,7 +372,7 @@ concurrent settles through one treasury to look like an attack on a public
 endpoint, and a local validator does not reproduce the scheduler this claim
 is about.
 
-## 5. Two published artifacts
+## 5. Three published artifacts
 
 Decided 2026-08-31, packaged 2026-09-01.
 
@@ -403,18 +398,23 @@ the browser layer against a fresh resolve.
 Ordering matters once, at the first publish. Flipping a default feature after
 release is a breaking change for anyone who already depends on the crate, so
 it had to land first; the same is true of any further reshaping of the API
-surface. The registry names are also unclaimed and unreserved — see the
-README's "Publishing" for what to check before the first push.
+surface. The registry names were also unclaimed and unreserved at the time;
+`sol-pay-client` now holds all three — crates.io, npm and Packagist. The
+README's "Publishing" says what to check before a first push.
 
 Carried over from the dependency policy: a published crate's `Cargo.lock` is
 ignored by consumers. They re-resolve inside the ranges in `Cargo.toml`, so
 those ranges become the real compatibility contract on the day this ships.
 
-**A third, later, and not yet published.** `php-client` (2026-09-03) packages
-the server row of §3 for PHP, as `wbreeze/sol-pay-client` on Composer. It is
-not on Packagist and nothing depends on it yet. It is nonetheless meant to
-become a real artifact rather than to stay a demonstration, which is why §8.1's
-conformance job exists rather than being advice for later.
+**A third, later.** `php-client` (2026-09-03) packages the server row of §3
+for PHP, as `wbreeze/sol-pay-client`, on Packagist since 2026-09-05; the
+demonstrator requires `^0.1.2`. It does not share the version number above,
+and cannot: Composer derives a version from a git tag, and a tag in this
+repository would claim to version the other two artifacts, so the package
+publishes from a subtree split carrying a tag history of its own — see
+`php-client/README.md`, "Publishing". It is a real artifact rather than a
+demonstration, which is what §8.1's conformance job has been guarding since
+before its first release.
 
 ## 6. API surface
 

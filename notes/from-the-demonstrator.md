@@ -80,7 +80,7 @@ treasury-contention argument as unmeasured; §4.6 already does.
 Measured on the author's machine between 2026-09-07 and 2026-09-10, against
 Firefox 155 with Phantom and against Brave, through a diagnostics page that
 filters nothing. Nothing in this repository covers any of it; SPEC §5's
-mention of registry names is about crates.io and npm.
+mention of registry names is about crates.io, npm and Packagist.
 
 > Filter wallets by **chain and features, never by name** — one extension
 > registers one wallet per network and they share a name.

@@ -6,7 +6,10 @@
 #   bin/build-rust --program   just the Anchor program
 #   bin/build-rust --client    just the WASM client
 #
-# The client bundle lands in wasm-client/pkg (gitignored).
+# The client bundle lands in wasm-client/pkg (gitignored). The client build
+# also adds the wasm32-unknown-unknown target when the pinned toolchain lacks
+# it, and declares the @solana/kit optional peer range in pkg/package.json --
+# see the comments at those two steps below for why each is here.
 
 set -euo pipefail
 

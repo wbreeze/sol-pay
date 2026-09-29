@@ -11,3 +11,8 @@ pub const SYSTEM_PROGRAM_ID: Pubkey = pubkey!("11111111111111111111111111111111"
 pub const TOKEN_PROGRAM_ID: Pubkey = pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 
 pub const TOKEN_2022_PROGRAM_ID: Pubkey = pubkey!("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+
+/// A fund's token account is the fund PDA's associated token account, so its
+/// address is derived under this program. `open_fund` creates it by CPI.
+pub const ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey =
+    pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");

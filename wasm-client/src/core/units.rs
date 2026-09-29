@@ -2,9 +2,10 @@
 //!
 //! Every amount this crate takes is in base units, and USDC has six decimals.
 //! An integrator who scales twice turns an intended 50 USDC into 50,000,000
-//! of allowance, and nothing rejects it: `approve` checks no balance, and the
-//! program's delegate check only compares the allowance against the limit. The
-//! reader's chosen cap silently becomes their whole balance.
+//! of limit, and nothing rejects it: `open_meter` checks no balance, on
+//! purpose (SPEC §4.7). The reader's chosen cap silently becomes fifty
+//! thousand dollars they do not have, and the first settle past their real
+//! balance fails in a way the page then has to explain (SPEC §6.2).
 //!
 //! Owning the conversion removes that error class. Validating its output could
 //! not, because no validator knows what the reader meant.

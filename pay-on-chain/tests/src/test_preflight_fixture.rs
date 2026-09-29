@@ -27,14 +27,16 @@
 //! eagerly and that guarantee is gone.
 //!
 //! The fixture is committed. It records only what the cases below touch:
-//! `charge`, `can_meter`, `will_settle`, `items_remaining`, `limit_floor` and
-//! `diagnose`. `required_allowance` is the identity function and is not
-//! recorded. Consumed by `php-client/conformance/preflight.php`.
+//! `charge`, `can_meter` (with the clock it was asked at), `will_settle`,
+//! `items_remaining`, `limit_floor` and `shortfall`. Consumed by
+//! `php-client/conformance/preflight.php`.
+//!
+//! Since the fund redesign (SPEC §4.7) the token account recorded is the
+//! fund's, and each case carries the `now` its predicates were asked at, so
+//! the expiry boundary is recorded like the limit boundary is.
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
-
-use solana_signer::Signer;
 
 use sol_pay_client::core::{
     error as client_error, preflight,
@@ -51,27 +53,28 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 /// The three accounts a PHP caller would have fetched, exactly as they stood
-/// before the action this case is about.
+/// before the action this case is about, and the time it asked at.
 struct Snapshot {
     site: Vec<u8>,
     meter: Vec<u8>,
     token_account: Vec<u8>,
+    now: i64,
 }
 
-fn snapshot(env: &Env) -> Snapshot {
-    let meter_addr = meter_pda(&env.site, &env.reader.pubkey());
+fn snapshot(env: &Env, now: i64) -> Snapshot {
     Snapshot {
         site: env.svm.get_account(&env.site).expect("site account").data,
         meter: env
             .svm
-            .get_account(&meter_addr)
+            .get_account(&env.meter_addr())
             .expect("meter account")
             .data,
         token_account: env
             .svm
-            .get_account(&env.reader_ata)
-            .expect("token account")
+            .get_account(&env.fund_ata)
+            .expect("fund token account")
             .data,
+        now,
     }
 }
 
@@ -85,8 +88,7 @@ impl Fixture {
     }
 
     /// `program` is what the program did next, in the caller's words:
-    /// "accepted", an Anchor error name, or "spl:0x1" -- or "n/a" where the
-    /// case records a resting state with no following call. It is context for
+    /// "accepted", an Anchor error name, or "spl:0x1". It is context for
     /// whoever reads a failure, not something the PHP side asserts on.
     fn push(&mut self, name: &str, note: &str, snap: &Snapshot, items: u32, program: &str) {
         let site = ClientSite::decode(&snap.site).expect("client decodes site");
@@ -98,8 +100,11 @@ impl Fixture {
             Some(c) => c.to_string(),
             None => "null".to_string(),
         };
-        let can_meter = match preflight::can_meter(&meter, &site, items) {
+        let can_meter = match preflight::can_meter(&meter, &site, items, snap.now) {
             Ok(()) => "null".to_string(),
+            Err(preflight::Blocked::Expired) => {
+                "{\"kind\": \"Expired\", \"over\": null}".to_string()
+            }
             Err(preflight::Blocked::LimitReached { over }) => {
                 format!("{{\"kind\": \"LimitReached\", \"over\": {over}}}")
             }
@@ -108,7 +113,7 @@ impl Fixture {
             }
         };
         let unpaid = meter.unpaid();
-        let shortfall = client_error::diagnose(&account, unpaid);
+        let shortfall = client_error::shortfall(&account, unpaid);
 
         let mut case = String::new();
         writeln!(case, "    {{").unwrap();
@@ -123,6 +128,7 @@ impl Fixture {
         )
         .unwrap();
         writeln!(case, "      \"items\": {items},").unwrap();
+        writeln!(case, "      \"now\": {},", snap.now).unwrap();
         writeln!(case, "      \"charge\": {charge},").unwrap();
         writeln!(case, "      \"can_meter\": {can_meter},").unwrap();
         writeln!(
@@ -144,27 +150,7 @@ impl Fixture {
         )
         .unwrap();
         writeln!(case, "      \"unpaid\": {unpaid},").unwrap();
-        writeln!(case, "      \"diagnose\": {{").unwrap();
-        writeln!(case, "        \"unpaid\": {unpaid},").unwrap();
-        writeln!(
-            case,
-            "        \"balance_short\": {},",
-            shortfall.balance_short
-        )
-        .unwrap();
-        writeln!(
-            case,
-            "        \"allowance_short\": {},",
-            shortfall.allowance_short
-        )
-        .unwrap();
-        writeln!(
-            case,
-            "        \"delegate_present\": {}",
-            shortfall.delegate_present
-        )
-        .unwrap();
-        writeln!(case, "      }},").unwrap();
+        writeln!(case, "      \"shortfall\": {shortfall},").unwrap();
         writeln!(case, "      \"program\": \"{program}\"").unwrap();
         write!(case, "    }}").unwrap();
 
@@ -197,7 +183,7 @@ fn record_what_the_program_does_for_the_php_port() {
     let mut env = Env::new(RICH);
     env.open(LIMIT).unwrap();
 
-    let snap = snapshot(&env);
+    let snap = snapshot(&env, NOW);
     env.meter(1).expect("a fresh meter meters");
     fixture.push(
         "fresh meter",
@@ -214,7 +200,7 @@ fn record_what_the_program_does_for_the_php_port() {
     // and item ITEMS_TO_THRESHOLD is the one that settles -- it is recorded
     // separately below, so it must not fall inside this loop.
     for step in 2..ITEMS_TO_THRESHOLD {
-        let snap = snapshot(&env);
+        let snap = snapshot(&env, NOW);
         let before = env.token_balance(&env.treasury);
         env.meter(1).expect("under the limit");
         let moved = env.token_balance(&env.treasury) > before;
@@ -230,7 +216,7 @@ fn record_what_the_program_does_for_the_php_port() {
         }
     }
 
-    let snap = snapshot(&env);
+    let snap = snapshot(&env, NOW);
     let before = env.token_balance(&env.treasury);
     env.meter(1).expect("the settling item");
     let moved = env.token_balance(&env.treasury) > before;
@@ -246,9 +232,8 @@ fn record_what_the_program_does_for_the_php_port() {
     // --- the limit boundary ----------------------------------------------
     // Spend to one item short, record there, then record at the limit where
     // the program must refuse.
-    let meter_addr = meter_pda(&env.site, &env.reader.pubkey());
     loop {
-        let raw = env.svm.get_account(&meter_addr).expect("meter").data;
+        let raw = env.svm.get_account(&env.meter_addr()).expect("meter").data;
         let meter = ClientMeter::decode(&raw).expect("decode meter");
         let site_raw = env.svm.get_account(&env.site).expect("site").data;
         let site = ClientSite::decode(&site_raw).expect("decode site");
@@ -258,7 +243,7 @@ fn record_what_the_program_does_for_the_php_port() {
         env.meter(1).expect("still under the limit");
     }
 
-    let snap = snapshot(&env);
+    let snap = snapshot(&env, NOW);
     env.meter(1).expect("the last item the limit allows");
     fixture.push(
         "one item short of the limit",
@@ -268,7 +253,7 @@ fn record_what_the_program_does_for_the_php_port() {
         "accepted",
     );
 
-    let snap = snapshot(&env);
+    let snap = snapshot(&env, NOW);
     assert_error(env.meter(1), "LimitReached");
     fixture.push(
         "at the limit",
@@ -279,7 +264,7 @@ fn record_what_the_program_does_for_the_php_port() {
     );
 
     // Two items over is still LimitReached, and `over` doubles.
-    let snap = snapshot(&env);
+    let snap = snapshot(&env, NOW);
     assert_error(env.meter(2), "LimitReached");
     fixture.push(
         "two items past the limit",
@@ -297,15 +282,14 @@ fn record_what_the_program_does_for_the_php_port() {
     env.meter(ITEMS_TO_THRESHOLD).unwrap();
     env.meter(3).unwrap();
 
-    let snap = snapshot(&env);
+    let snap = snapshot(&env, NOW);
     let site = ClientSite::decode(&snap.site).expect("decode site");
     let meter = ClientMeter::decode(&snap.meter).expect("decode meter");
     let floor = preflight::limit_floor(&site, Some(&meter));
 
-    let reader = env.reader.insecure_clone();
-    let under = [env.ix_approve(floor - 1), env.ix_renew(floor - 1)];
+    let under = env.ix_renew(floor - 1);
     assert!(
-        env.send(&under, &[&reader], &reader.pubkey()).is_err(),
+        env.as_reader(&[under]).is_err(),
         "the program must refuse a limit below the floor the client reports"
     );
     fixture.push(
@@ -316,69 +300,56 @@ fn record_what_the_program_does_for_the_php_port() {
         "renew refused one below the floor, accepted at it",
     );
 
-    let at = [env.ix_approve(floor), env.ix_renew(floor)];
-    env.send(&at, &[&reader], &reader.pubkey())
+    let at = env.ix_renew(floor);
+    env.as_reader(&[at])
         .expect("the floor itself must be renewable");
 
-    // --- a balance too small for the settle it is about to owe ------------
+    // --- a fund too small for the settle it is about to owe ---------------
     let mut env = Env::new(THRESHOLD - 1);
     env.open(LIMIT).unwrap();
     for _ in 0..(ITEMS_TO_THRESHOLD - 1) {
         env.meter(1).expect("accruing costs nothing yet");
     }
-    let snap = snapshot(&env);
+    let snap = snapshot(&env, NOW);
     let failed = env.meter(1);
-    assert!(failed.is_err(), "a settle larger than the balance must fail");
+    assert!(
+        failed.map_err(|e| e.contains("0x1")) == Err(true),
+        "a settle larger than the fund must fail with SPL custom error 1"
+    );
     fixture.push(
-        "balance short of the settle",
-        "diagnose reports balance_short; SPL reports only custom error 0x1",
+        "fund short of the settle",
+        "shortfall is what the fund's token account lacks; SPL reports custom error 0x1",
         &snap,
         1,
         "spl:0x1",
     );
 
-    // --- an allowance too small, with the balance fine --------------------
+    // --- the expiry boundary ----------------------------------------------
+    // The expiry second itself meters; the next one is refused.
     let mut env = Env::new(RICH);
     env.open(LIMIT).unwrap();
-    let reader = env.reader.insecure_clone();
-    env.send(&[env.ix_approve(THRESHOLD - 1)], &[&reader], &reader.pubkey())
-        .unwrap();
-    for _ in 0..(ITEMS_TO_THRESHOLD - 1) {
-        env.meter(1).expect("accruing costs nothing yet");
-    }
-    let snap = snapshot(&env);
-    let failed = env.meter(1);
-    assert!(
-        failed.is_err(),
-        "a settle larger than the allowance must fail"
-    );
+    let expiry = env.meter_account().expiry;
+
+    env.set_now(expiry);
+    let snap = snapshot(&env, expiry);
+    env.meter(1).expect("the expiry second still meters");
     fixture.push(
-        "allowance short of the settle",
-        "diagnose reports allowance_short; SPL reports the same 0x1 as a short balance",
+        "at the expiry second",
+        "now equals the expiry and the program still meters",
         &snap,
         1,
-        "spl:0x1",
+        "accepted",
     );
 
-    // --- the delegate SPL clears when the allowance reaches zero ----------
-    let mut env = Env::new(RICH);
-    env.open(LIMIT).unwrap();
-    let reader = env.reader.insecure_clone();
-    env.send(&[env.ix_approve(THRESHOLD)], &[&reader], &reader.pubkey())
-        .unwrap();
-    env.meter(ITEMS_TO_THRESHOLD).unwrap();
-    let snap = snapshot(&env);
-    let account = ClientTokenAccount::decode(&snap.token_account).expect("decode token account");
-    assert!(
-        account.delegate.is_none(),
-        "SPL clears the delegate when the allowance reaches zero"
-    );
+    env.set_now(expiry + 1);
+    let snap = snapshot(&env, expiry + 1);
+    assert_error(env.meter(1), "Expired");
     fixture.push(
-        "delegate cleared by a spent allowance",
-        "delegate_present is false, which is a different failure from merely running short",
+        "one second past the expiry",
+        "can_meter reports Expired, and the program refuses",
         &snap,
         1,
-        "n/a -- a resting state, no call follows",
+        "Expired",
     );
 
     fixture.write();

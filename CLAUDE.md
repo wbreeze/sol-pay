@@ -108,25 +108,32 @@ diagnostic step's output first.
 
 ### The chain model
 
+The fund design, `wasm-client/SPEC.md` §4.7–§4.9 (it replaced the SPL
+delegate design on the `next_ten` branch, 2026-09-29):
+
 - `Site` PDA, seeds `["site", authority]` — one per site authority, holding
   `mint`, `treasury`, `item_price`, `collection_threshold`, `min_limit`.
-- `Meter` PDA, seeds `["meter", site, reader]` — per reader per site,
-  holding `limit`, `used`, `paid`.
-- The reader SPL-`approve`s the **meter PDA** as delegate for the full limit.
-  `open_meter` and `renew_meter` verify that delegation on chain
-  (`require_delegate`) rather than trusting the client, so the `approve` must
-  come earlier in the same transaction.
+- `Fund` PDA, seeds `["fund", reader, mint, index]` — the reader's money in
+  one mint, holding `reader`, `mint`, `index`, a count of open `meters`. The
+  balance is the fund PDA's **associated token account**, which `open_fund`
+  creates by a hand-built CPI to the ATA program (`CreateIdempotent`), because
+  anchor-spl's `associated_token` feature cannot be enabled (see
+  `pay-on-chain/tests/Cargo.toml`). A deposit is a plain `transfer_checked`
+  into it; `withdraw` and `close_fund` are the reader's.
+- `Meter` PDA, seeds `["meter", site, fund]` — one per site per fund, holding
+  the browser `key`, an `expiry`, `limit`, `used`, `paid`. Opened and renewed
+  by the reader (who names key and expiry); closed by the reader or the key.
+  `open_meter` and `renew_meter` refuse a fund in another mint
+  (`MintMismatch`).
 - `meter_and_settle` is signed by the site authority alone, with the reader
-  absent. It adds `item_price * items` to `used`, and when the unpaid
-  balance reaches `collection_threshold` it transfers the whole unpaid balance
-  by CPI, signing as the meter PDA. Increment and transfer succeed or fail
-  together.
-- One token account has one delegate, so a reader holds one active meter per
-  token account.
+  absent. It refuses past the expiry (`Expired`), adds `item_price * items` to
+  `used`, and when the unpaid balance reaches `collection_threshold` transfers
+  the whole unpaid balance from the fund's token account by CPI, signing with
+  the **fund's** seeds. Increment and transfer succeed or fail together.
 
-Two amounts are easy to confuse: the **spending limit** caps `used` and is what
-the reader authorizes; the **collection threshold** is the smallest unpaid
-balance worth a transfer.
+Two amounts are easy to confuse: the **limit** caps a meter's `used` and is
+what the reader sets for a site; the **collection threshold** is the smallest
+unpaid balance the site transfers at once.
 
 ### The client crate
 

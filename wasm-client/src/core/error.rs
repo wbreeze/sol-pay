@@ -24,11 +24,14 @@ pub enum PayError {
     MinimumBelowThreshold,
     ZeroItemPrice,
     LimitReached,
-    DelegateNotSet,
-    DelegateMismatch,
-    DelegateAllowanceTooLow,
     LimitBelowUsage,
     MathOverflow,
+    MintMismatch,
+    Expired,
+    ExpiryInPast,
+    Unauthorized,
+    FundNotEmpty,
+    FundHasMeters,
 }
 
 /// Where Anchor starts numbering `#[error_code]` variants.
@@ -42,11 +45,14 @@ impl PayError {
             1 => MinimumBelowThreshold,
             2 => ZeroItemPrice,
             3 => LimitReached,
-            4 => DelegateNotSet,
-            5 => DelegateMismatch,
-            6 => DelegateAllowanceTooLow,
-            7 => LimitBelowUsage,
-            8 => MathOverflow,
+            4 => LimitBelowUsage,
+            5 => MathOverflow,
+            6 => MintMismatch,
+            7 => Expired,
+            8 => ExpiryInPast,
+            9 => Unauthorized,
+            10 => FundNotEmpty,
+            11 => FundHasMeters,
             _ => return None,
         })
     }
@@ -62,11 +68,14 @@ impl PayError {
             MinimumBelowThreshold => "Site minimum limit must exceed the collection threshold",
             ZeroItemPrice => "Item price must be greater than zero",
             LimitReached => "Charge would carry usage past the authorized limit",
-            DelegateNotSet => "Reader token account names no delegate",
-            DelegateMismatch => "Reader token account delegates a different authority",
-            DelegateAllowanceTooLow => "Delegated allowance does not cover the outstanding limit",
             LimitBelowUsage => "New limit does not cover usage already accrued",
             MathOverflow => "Arithmetic overflow",
+            MintMismatch => "The site and the fund are in different mints",
+            Expired => "The meter is past its expiry",
+            ExpiryInPast => "The expiry has already passed",
+            Unauthorized => "Signer is neither the fund's reader nor the meter's key",
+            FundNotEmpty => "The fund still holds a balance",
+            FundHasMeters => "The fund still has meters open",
         }
     }
 }
@@ -75,19 +84,18 @@ impl PayError {
 /// naming codes sol-pay cannot cause would invite guessing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenError {
-    /// Code 1. Raised both when the reader's balance is too low *and* when the
-    /// delegated allowance is too low, which is why [`diagnose`] exists.
+    /// Code 1. From a settle, it means one thing now that there is no
+    /// allowance: the fund's token account holds less than the unpaid
+    /// balance. [`shortfall`] says by how much.
     InsufficientFunds,
     /// Code 3. The token account is for a different mint than the site's.
     MintMismatch,
-    /// Code 4. Includes the case where the delegate was cleared: SPL drops the
-    /// delegate once its allowance reaches zero, and a cleared delegate is no
-    /// longer an authority at all.
+    /// Code 4. The signing authority does not own the source account.
     OwnerMismatch,
     /// Code 17.
     AccountFrozen,
-    /// Code 18. Usually a client passing the wrong `decimals` to
-    /// `approve_checked`.
+    /// Code 18. Usually a client passing the wrong `decimals` to `deposit` or
+    /// `withdraw`.
     MintDecimalsMismatch,
 }
 
@@ -118,9 +126,9 @@ impl TokenError {
     pub fn message(&self) -> &'static str {
         use TokenError::*;
         match self {
-            InsufficientFunds => "Insufficient funds or delegated allowance",
+            InsufficientFunds => "Insufficient funds",
             MintMismatch => "Token account is for a different mint",
-            OwnerMismatch => "Wrong owner, or the delegate is no longer set",
+            OwnerMismatch => "Wrong owner",
             AccountFrozen => "Token account is frozen",
             MintDecimalsMismatch => "Decimals do not match the mint",
         }
@@ -167,39 +175,16 @@ pub fn cause(program: &Pubkey, code: u32) -> Cause {
     Program::default().cause(program, code)
 }
 
-/// Which constraint on the reader's token account is short, and by how much.
+/// How much the fund's token account is short of the next settle, given
+/// what that settle would move. Zero when the balance covers it.
 ///
-/// A struct rather than a verdict, because both can be short at once and
-/// because the response differs: a low balance means top up, a low allowance
-/// means re-authorize. This reports the state and leaves the response to the
-/// site.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Shortfall {
-    /// Zero when the balance covers it.
-    pub balance_short: u64,
-    /// Zero when the allowance covers it.
-    pub allowance_short: u64,
-    /// False once SPL has cleared the delegate -- which it does the moment the
-    /// allowance is spent to zero, as well as on an explicit revoke.
-    pub delegate_present: bool,
-}
-
-impl Shortfall {
-    /// Nothing on this account would stop a transfer of the amount asked about.
-    pub fn is_clear(&self) -> bool {
-        self.balance_short == 0 && self.allowance_short == 0 && self.delegate_present
-    }
-}
-
-/// Read the reader's token account and say what would stop a settle of
-/// `unpaid`. A read, not a guess: neither shortfall is inferable from the
-/// error code, because SPL reports both as `InsufficientFunds`.
-pub fn diagnose(account: &TokenAccount, unpaid: u64) -> Shortfall {
-    Shortfall {
-        balance_short: unpaid.saturating_sub(account.amount),
-        allowance_short: unpaid.saturating_sub(account.delegated_amount),
-        delegate_present: account.delegate.is_some(),
-    }
+/// A number rather than a verdict: the site decides what to say. It takes a
+/// decoded account so decoding stays in `state` and a caller who already
+/// fetched the account does not decode it twice. The other way a settle can
+/// fail for lack of money is a frozen account, which is a [`TokenError`] of
+/// its own and needs no arithmetic.
+pub fn shortfall(fund_token_account: &TokenAccount, unpaid: u64) -> u64 {
+    unpaid.saturating_sub(fund_token_account.amount)
 }
 
 #[cfg(test)]
@@ -212,14 +197,16 @@ mod tests {
         for e in [
             PayError::LimitBelowMinimum,
             PayError::LimitReached,
-            PayError::DelegateAllowanceTooLow,
             PayError::MathOverflow,
+            PayError::Expired,
+            PayError::FundHasMeters,
         ] {
             assert_eq!(PayError::from_code(e.code()), Some(e));
         }
         assert_eq!(PayError::LimitReached.code(), 6003);
+        assert_eq!(PayError::FundHasMeters.code(), 6011);
         assert_eq!(PayError::from_code(5999), None);
-        assert_eq!(PayError::from_code(6009), None);
+        assert_eq!(PayError::from_code(6012), None);
         // A code below the base must not wrap around.
         assert_eq!(PayError::from_code(0), None);
     }
@@ -297,40 +284,20 @@ mod tests {
         );
     }
 
-    fn account(amount: u64, delegated: u64, has_delegate: bool) -> TokenAccount {
+    fn account(amount: u64) -> TokenAccount {
         TokenAccount {
             mint: Pubkey::new_from_array([1u8; 32]),
             owner: Pubkey::new_from_array([2u8; 32]),
             amount,
-            delegate: has_delegate.then(|| Pubkey::new_from_array([3u8; 32])),
-            delegated_amount: delegated,
+            delegate: None,
+            delegated_amount: 0,
         }
     }
 
     #[test]
-    fn diagnose_separates_what_the_error_code_conflates() {
-        // Balance short, allowance fine.
-        let d = diagnose(&account(40, 500, true), 100);
-        assert_eq!(d.balance_short, 60);
-        assert_eq!(d.allowance_short, 0);
-        assert!(!d.is_clear());
-
-        // Allowance short, balance fine.
-        let d = diagnose(&account(500, 40, true), 100);
-        assert_eq!(d.balance_short, 0);
-        assert_eq!(d.allowance_short, 60);
-
-        // Both, which a single verdict would have to pick between.
-        let d = diagnose(&account(40, 30, true), 100);
-        assert_eq!(d.balance_short, 60);
-        assert_eq!(d.allowance_short, 70);
-
-        // Spent to zero: SPL clears the delegate.
-        let d = diagnose(&account(500, 0, false), 100);
-        assert!(!d.delegate_present);
-        assert_eq!(d.allowance_short, 100);
-
-        let d = diagnose(&account(500, 500, true), 100);
-        assert!(d.is_clear());
+    fn shortfall_is_what_the_balance_lacks() {
+        assert_eq!(shortfall(&account(40), 100), 60);
+        assert_eq!(shortfall(&account(100), 100), 0);
+        assert_eq!(shortfall(&account(500), 100), 0, "never negative");
     }
 }

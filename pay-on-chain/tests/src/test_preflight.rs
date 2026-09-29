@@ -6,11 +6,9 @@
 //! the error the predicate named -- and where a predicate says a call would
 //! succeed, it must.
 //!
-//! This file also settles a question the published documentation does not
-//! answer: which code SPL Token returns for a short balance versus a short
-//! delegated allowance. `core::error::diagnose` exists because of the answer.
-
-use solana_signer::Signer;
+//! It also pins what is left of a question the delegate design had to ask:
+//! which code SPL Token returns when a settle is short. With no allowance
+//! there is one answer, and `core::error::shortfall` is the number beside it.
 
 use sol_pay_client::core::{
     error as client_error, preflight,
@@ -26,18 +24,15 @@ const RICH: u64 = 10_000_000;
 /// would: fetch the account, decode it, ask the predicate.
 fn client_view(env: &Env) -> (ClientSite, ClientMeter) {
     let site = env.svm.get_account(&env.site).expect("site account");
-    let meter = env
-        .svm
-        .get_account(&meter_pda(&env.site, &env.reader.pubkey()))
-        .expect("meter account");
+    let meter = env.svm.get_account(&env.meter_addr()).expect("meter account");
     (
         ClientSite::decode(&site.data).expect("client decodes site"),
         ClientMeter::decode(&meter.data).expect("client decodes meter"),
     )
 }
 
-fn client_token_account(env: &Env) -> ClientTokenAccount {
-    let acct = env.svm.get_account(&env.reader_ata).expect("token account");
+fn client_fund_token_account(env: &Env) -> ClientTokenAccount {
+    let acct = env.svm.get_account(&env.fund_ata).expect("token account");
     ClientTokenAccount::decode(&acct.data).expect("client decodes token account")
 }
 
@@ -54,19 +49,56 @@ fn can_meter_blocks_exactly_when_the_program_refuses() {
 
     let (site, meter) = client_view(&env);
     assert_eq!(preflight::items_remaining(&meter, &site), 1);
-    assert_eq!(preflight::can_meter(&meter, &site, 1), Ok(()));
+    assert_eq!(preflight::can_meter(&meter, &site, 1, NOW), Ok(()));
     env.meter(1).expect("the predicate said this would work");
 
     // Now the limit is exactly reached, and one more item is over.
     let (site, meter) = client_view(&env);
     assert_eq!(preflight::items_remaining(&meter, &site), 0);
     assert_eq!(
-        preflight::can_meter(&meter, &site, 1),
-        Err(preflight::Blocked::LimitReached {
-            over: ITEM_PRICE
-        })
+        preflight::can_meter(&meter, &site, 1, NOW),
+        Err(preflight::Blocked::LimitReached { over: ITEM_PRICE })
     );
     assert_error(env.meter(1), "LimitReached");
+}
+
+/// SPEC §8: `can_meter`'s clock argument and the program's `Clock::get()`
+/// agree on `<=`, one second either side of the expiry.
+#[test]
+fn can_meter_and_the_program_agree_on_the_expiry_second() {
+    let mut env = Env::new(RICH);
+    env.open(LIMIT).unwrap();
+    let (site, meter) = client_view(&env);
+
+    env.set_now(meter.expiry);
+    assert_eq!(preflight::can_meter(&meter, &site, 1, meter.expiry), Ok(()));
+    env.meter(1).expect("the predicate said the expiry second meters");
+
+    let (site, meter) = client_view(&env);
+    env.set_now(meter.expiry + 1);
+    assert_eq!(
+        preflight::can_meter(&meter, &site, 1, meter.expiry + 1),
+        Err(preflight::Blocked::Expired)
+    );
+    assert_error(env.meter(1), "Expired");
+}
+
+/// Expired and full at once reports expired, because the program checks the
+/// expiry first.
+#[test]
+fn expiry_is_reported_before_the_limit() {
+    let mut env = Env::new(RICH);
+    env.open(LIMIT).unwrap();
+    env.meter((LIMIT / ITEM_PRICE) as u32).unwrap();
+
+    let (site, meter) = client_view(&env);
+    let later = meter.expiry + 1;
+    env.set_now(later);
+    assert_eq!(
+        preflight::can_meter(&meter, &site, 1, later),
+        Err(preflight::Blocked::Expired)
+    );
+    assert_error(env.meter(1), "Expired");
 }
 
 #[test]
@@ -105,16 +137,15 @@ fn limit_floor_is_the_smallest_limit_renewal_accepts() {
     assert_eq!(floor, MIN_LIMIT.max(meter.unpaid()));
 
     // A hair under the floor must be refused by the program.
-    let reader = env.reader.insecure_clone();
-    let ixs = [env.ix_approve(floor - 1), env.ix_renew(floor - 1)];
+    let under = env.ix_renew(floor - 1);
     assert!(
-        env.send(&ixs, &[&reader], &reader.pubkey()).is_err(),
+        env.as_reader(&[under]).is_err(),
         "the program must refuse a limit below the floor the client reports"
     );
 
     // The floor itself must be accepted.
-    let ixs = [env.ix_approve(floor), env.ix_renew(floor)];
-    env.send(&ixs, &[&reader], &reader.pubkey())
+    let at = env.ix_renew(floor);
+    env.as_reader(&[at])
         .expect("the floor itself must be renewable");
 }
 
@@ -141,92 +172,73 @@ fn client_error_codes_match_the_program() {
         (C::MinimumBelowThreshold, P::MinimumBelowThreshold),
         (C::ZeroItemPrice, P::ZeroItemPrice),
         (C::LimitReached, P::LimitReached),
-        (C::DelegateNotSet, P::DelegateNotSet),
-        (C::DelegateMismatch, P::DelegateMismatch),
-        (C::DelegateAllowanceTooLow, P::DelegateAllowanceTooLow),
         (C::LimitBelowUsage, P::LimitBelowUsage),
         (C::MathOverflow, P::MathOverflow),
+        (C::MintMismatch, P::MintMismatch),
+        (C::Expired, P::Expired),
+        (C::ExpiryInPast, P::ExpiryInPast),
+        (C::Unauthorized, P::Unauthorized),
+        (C::FundNotEmpty, P::FundNotEmpty),
+        (C::FundHasMeters, P::FundHasMeters),
     ];
     for (client, program) in pairs {
         let code = u32::from(program);
-        assert_eq!(
-            client.code(),
-            code,
-            "{client:?} code disagrees with the program"
-        );
+        assert_eq!(client.code(), code, "{client:?} code disagrees with the program");
         assert_eq!(client_error::PayError::from_code(code), Some(client));
     }
+    // One past the last variant is nobody's.
+    assert_eq!(client_error::PayError::from_code(6012), None);
 }
 
-/// The question the docs do not answer, and the reason `diagnose` exists.
-///
-/// A settle can fail two ways that a site must respond to differently: the
-/// reader's balance is short (top up) or the delegated allowance is short
-/// (re-authorize). If SPL distinguishes them by code, `diagnose` is redundant.
+/// SPEC §8: the code SPL Token actually returns for a short fund, which is
+/// all that is left of the ambiguity §6.4 used to have. A short balance is
+/// custom error 1, and `shortfall` says by how much.
 #[test]
-fn spl_does_not_distinguish_a_short_balance_from_a_short_allowance() {
-    // --- short balance: authorize plenty, hold almost nothing ---
+fn a_short_fund_is_spl_error_1_and_shortfall_measures_it() {
     let mut env = Env::new(THRESHOLD - 1);
     env.open(LIMIT).unwrap();
-    let short_balance = env
+
+    let failed = env
         .meter(ITEMS_TO_THRESHOLD)
-        .expect_err("a settle larger than the balance must fail");
-
-    let d = client_error::diagnose(&client_token_account(&env), THRESHOLD);
-    assert_eq!(d.balance_short, 1, "client sees the balance shortfall");
-    assert_eq!(d.allowance_short, 0, "the allowance was never the problem");
-    assert!(d.delegate_present);
-
-    // --- short allowance: hold plenty, authorize almost nothing ---
-    let mut env = Env::new(RICH);
-    env.open(LIMIT).unwrap();
-    // Re-approve below what the next settle needs. `approve` replaces.
-    let reader = env.reader.insecure_clone();
-    env.send(&[env.ix_approve(THRESHOLD - 1)], &[&reader], &reader.pubkey())
-        .unwrap();
-    let short_allowance = env
-        .meter(ITEMS_TO_THRESHOLD)
-        .expect_err("a settle larger than the allowance must fail");
-
-    let d = client_error::diagnose(&client_token_account(&env), THRESHOLD);
-    assert_eq!(d.allowance_short, 1, "client sees the allowance shortfall");
-    assert_eq!(d.balance_short, 0, "the balance was never the problem");
-    assert!(d.delegate_present);
-
-    // Both are SPL custom error 1. If this assertion ever fails because the
-    // two diverge, `diagnose` can be deleted and the code read directly.
+        .expect_err("a settle larger than the fund must fail");
     assert!(
-        short_balance.contains("0x1"),
-        "expected SPL custom error 0x1 for a short balance, got: {short_balance}"
+        failed.contains("0x1"),
+        "expected SPL custom error 0x1 for a short balance, got: {failed}"
     );
-    assert!(
-        short_allowance.contains("0x1"),
-        "expected SPL custom error 0x1 for a short allowance, got: {short_allowance}"
-    );
+
+    let account = client_fund_token_account(&env);
+    assert_eq!(client_error::shortfall(&account, THRESHOLD), 1);
+    assert_eq!(client_error::shortfall(&account, THRESHOLD - 1), 0);
 }
 
-/// Spending an allowance to zero clears the delegate outright, which is a
-/// different failure from merely running short.
+/// SPEC §8: the other way a settle fails for lack of money is a frozen fund
+/// token account, and SPL names it with a code of its own -- 17, which the
+/// client knows as `TokenError::AccountFrozen`. Nothing to measure; the
+/// balance is fine.
 #[test]
-fn an_allowance_spent_to_zero_clears_the_delegate() {
+fn a_frozen_fund_is_spl_error_17() {
+    use anchor_spl::token::spl_token;
+    use solana_program_pack::Pack;
+
     let mut env = Env::new(RICH);
     env.open(LIMIT).unwrap();
 
-    // Approve exactly one settle's worth, then take it.
-    let reader = env.reader.insecure_clone();
-    env.send(&[env.ix_approve(THRESHOLD)], &[&reader], &reader.pubkey())
-        .unwrap();
-    env.meter(ITEMS_TO_THRESHOLD).unwrap();
-    assert_eq!(env.token_balance(&env.treasury), THRESHOLD);
+    let mut acct = env.svm.get_account(&env.fund_ata).expect("fund token account");
+    let mut state = spl_token::state::Account::unpack(&acct.data).expect("unpacks");
+    state.state = spl_token::state::AccountState::Frozen;
+    state.pack_into_slice(&mut acct.data);
+    env.svm.set_account(env.fund_ata, acct).unwrap();
 
-    let account = client_token_account(&env);
-    assert_eq!(account.delegated_amount, 0);
+    let failed = env
+        .meter(ITEMS_TO_THRESHOLD)
+        .expect_err("a settle from a frozen account must fail");
     assert!(
-        account.delegate.is_none(),
-        "SPL clears the delegate when the allowance reaches zero"
+        failed.contains("0x11"),
+        "expected SPL custom error 0x11 for a frozen account, got: {failed}"
     );
-
-    let d = client_error::diagnose(&account, ITEM_PRICE);
-    assert!(!d.delegate_present, "diagnose must report the cleared delegate");
-    assert!(!d.is_clear());
+    assert_eq!(
+        client_error::TokenError::from_code(17),
+        Some(client_error::TokenError::AccountFrozen)
+    );
+    assert_eq!(client_error::shortfall(&client_fund_token_account(&env), THRESHOLD), 0);
 }

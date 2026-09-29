@@ -1,4 +1,4 @@
-//! Does the WASM client emit the bytes the program accepts?
+//! Does the client emit the bytes the program accepts?
 //!
 //! Every other test builds instructions from Anchor's generated
 //! `accounts::` / `instruction::` types. The client builds them by hand from
@@ -14,46 +14,58 @@ use solana_pubkey::Pubkey;
 
 use sol_pay_client::core::{ids, ix as client, pda, state as client_state, Program};
 
+use crate::harness::{fund_ata_of, ASSOCIATED_TOKEN_PROGRAM_ID};
+
 const DECIMALS: u8 = 6;
 const LIMIT: u64 = 500_000;
+const EXPIRY: i64 = 1_800_003_600;
+const INDEX: u8 = 3;
 
 /// Fixed, distinguishable addresses. Nothing is executed here, so they need
 /// only be valid pubkeys.
 struct Fixture {
     authority: Pubkey,
     reader: Pubkey,
+    key: Pubkey,
     mint: Pubkey,
     treasury: Pubkey,
-    reader_ata: Pubkey,
+    source: Pubkey,
+    destination: Pubkey,
     site: Pubkey,
+    fund: Pubkey,
 }
 
 impl Fixture {
     fn new() -> Self {
         let authority = Pubkey::new_unique();
-        let site = pda::site_address(&authority).0;
+        let reader = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
         Fixture {
+            site: pda::site_address(&authority).0,
+            fund: pda::fund_address(&reader, &mint, INDEX).0,
             authority,
-            reader: Pubkey::new_unique(),
-            mint: Pubkey::new_unique(),
+            reader,
+            key: Pubkey::new_unique(),
+            mint,
             treasury: Pubkey::new_unique(),
-            reader_ata: Pubkey::new_unique(),
-            site,
+            source: Pubkey::new_unique(),
+            destination: Pubkey::new_unique(),
         }
     }
 
+    fn fund_ata(&self) -> Pubkey {
+        pda::fund_token_account(&self.fund, &self.mint)
+    }
+
     fn meter(&self) -> Pubkey {
-        pda::meter_address(&self.site, &self.reader).0
+        pda::meter_address(&self.site, &self.fund).0
     }
 }
 
 /// Compare in pieces so a failure says *what* diverged rather than dumping
 /// two opaque structs.
 fn assert_same(label: &str, client: &Instruction, anchor: &Instruction) {
-    assert_eq!(
-        client.program_id, anchor.program_id,
-        "{label}: program id"
-    );
+    assert_eq!(client.program_id, anchor.program_id, "{label}: program id");
     assert_eq!(
         client.data, anchor.data,
         "{label}: instruction data (discriminator or argument encoding)"
@@ -66,10 +78,7 @@ fn assert_same(label: &str, client: &Instruction, anchor: &Instruction) {
     for (i, (c, a)) in client.accounts.iter().zip(anchor.accounts.iter()).enumerate() {
         assert_eq!(c.pubkey, a.pubkey, "{label}: account {i} address");
         assert_eq!(c.is_signer, a.is_signer, "{label}: account {i} is_signer");
-        assert_eq!(
-            c.is_writable, a.is_writable,
-            "{label}: account {i} is_writable"
-        );
+        assert_eq!(c.is_writable, a.is_writable, "{label}: account {i} is_writable");
     }
 }
 
@@ -108,23 +117,30 @@ fn the_default_deployment_is_this_program() {
 
 /// The client hardcodes these base58 strings instead of depending on the
 /// crates that define them. Cheap to typo, so check them against the real
-/// sources.
+/// sources -- the ATA program against the program's own constant, since no
+/// crate here defines it.
 #[test]
 fn client_hardcoded_program_ids_are_correct() {
-    assert_eq!(
-        ids::TOKEN_PROGRAM_ID.to_bytes(),
-        spl_token::ID.to_bytes(),
-        "SPL Token program id"
-    );
+    assert_eq!(ids::TOKEN_PROGRAM_ID.to_bytes(), spl_token::ID.to_bytes(), "SPL Token");
     assert_eq!(
         ids::SYSTEM_PROGRAM_ID.to_bytes(),
         system_program::ID.to_bytes(),
-        "System program id"
+        "System program"
     );
     assert_eq!(
         ids::TOKEN_2022_PROGRAM_ID.to_bytes(),
         anchor_spl::token_2022::ID.to_bytes(),
-        "Token-2022 program id"
+        "Token-2022"
+    );
+    assert_eq!(
+        ids::ASSOCIATED_TOKEN_PROGRAM_ID.to_bytes(),
+        pay_on_chain::constants::ASSOCIATED_TOKEN_PROGRAM_ID.to_bytes(),
+        "Associated Token Account program, client vs program"
+    );
+    assert_eq!(
+        ids::ASSOCIATED_TOKEN_PROGRAM_ID.to_bytes(),
+        ASSOCIATED_TOKEN_PROGRAM_ID.to_bytes(),
+        "Associated Token Account program, client vs the harness LiteSVM runs"
     );
 }
 
@@ -136,12 +152,29 @@ fn client_derives_the_same_addresses() {
         Pubkey::find_program_address(&[b"site", f.authority.as_ref()], &pay_on_chain::ID).0;
     assert_eq!(f.site, anchor_site, "site seeds");
 
+    let anchor_fund = Pubkey::find_program_address(
+        &[b"fund", f.reader.as_ref(), f.mint.as_ref(), &[INDEX]],
+        &pay_on_chain::ID,
+    )
+    .0;
+    assert_eq!(f.fund, anchor_fund, "fund seeds");
+
     let anchor_meter = Pubkey::find_program_address(
-        &[b"meter", f.site.as_ref(), f.reader.as_ref()],
+        &[b"meter", f.site.as_ref(), f.fund.as_ref()],
         &pay_on_chain::ID,
     )
     .0;
     assert_eq!(f.meter(), anchor_meter, "meter seeds");
+
+    // The fund's token account three ways: the client, the program's own
+    // helper that pins it in `open_fund` and `close_fund`, and the formula
+    // the harness uses to find what LiteSVM's ATA program created.
+    assert_eq!(
+        f.fund_ata(),
+        pay_on_chain::fund_token_address(&f.fund, &f.mint, &spl_token::ID),
+        "fund token account, client vs program"
+    );
+    assert_eq!(f.fund_ata(), fund_ata_of(&f.fund, &f.mint), "fund token account formula");
 }
 
 #[test]
@@ -164,15 +197,67 @@ fn initialize_site_matches() {
         }
         .data(),
     };
-    let c = client::initialize_site(
-        &f.authority,
-        &f.mint,
-        &f.treasury,
-        1_000,
-        50_000,
-        200_000,
-    );
+    let c = client::initialize_site(&f.authority, &f.mint, &f.treasury, 1_000, 50_000, 200_000);
     assert_same("initialize_site", &c, &anchor);
+}
+
+#[test]
+fn open_fund_matches() {
+    let f = Fixture::new();
+    let anchor = Instruction {
+        program_id: pay_on_chain::ID,
+        accounts: pay_on_chain::accounts::OpenFund {
+            reader: f.reader,
+            fund: f.fund,
+            fund_token_account: f.fund_ata(),
+            mint: f.mint,
+            token_program: spl_token::ID,
+            associated_token_program: ASSOCIATED_TOKEN_PROGRAM_ID,
+            system_program: system_program::ID,
+        }
+        .to_account_metas(None),
+        data: pay_on_chain::instruction::OpenFund { index: INDEX }.data(),
+    };
+    let c = client::open_fund(&f.reader, &f.mint, INDEX);
+    assert_same("open_fund", &c, &anchor);
+}
+
+#[test]
+fn withdraw_matches() {
+    let f = Fixture::new();
+    let anchor = Instruction {
+        program_id: pay_on_chain::ID,
+        accounts: pay_on_chain::accounts::Withdraw {
+            reader: f.reader,
+            fund: f.fund,
+            fund_token_account: f.fund_ata(),
+            destination: f.destination,
+            mint: f.mint,
+            token_program: spl_token::ID,
+        }
+        .to_account_metas(None),
+        data: pay_on_chain::instruction::Withdraw { amount: 12_345 }.data(),
+    };
+    let c = client::withdraw(&f.reader, &f.mint, INDEX, &f.destination, 12_345);
+    assert_same("withdraw", &c, &anchor);
+}
+
+#[test]
+fn close_fund_matches() {
+    let f = Fixture::new();
+    let anchor = Instruction {
+        program_id: pay_on_chain::ID,
+        accounts: pay_on_chain::accounts::CloseFund {
+            reader: f.reader,
+            fund: f.fund,
+            fund_token_account: f.fund_ata(),
+            token_program: spl_token::ID,
+        }
+        .to_account_metas(None),
+        data: pay_on_chain::instruction::CloseFund {}.data(),
+    };
+    let c = client::close_fund(&f.reader, &f.mint, INDEX);
+    assert_same("close_fund", &c, &anchor);
 }
 
 #[test]
@@ -183,14 +268,19 @@ fn open_meter_matches() {
         accounts: pay_on_chain::accounts::OpenMeter {
             reader: f.reader,
             site: f.site,
+            fund: f.fund,
             meter: f.meter(),
-            reader_token_account: f.reader_ata,
             system_program: system_program::ID,
         }
         .to_account_metas(None),
-        data: pay_on_chain::instruction::OpenMeter { limit: LIMIT }.data(),
+        data: pay_on_chain::instruction::OpenMeter {
+            key: f.key,
+            limit: LIMIT,
+            expiry: EXPIRY,
+        }
+        .data(),
     };
-    let c = client::open_meter(&f.site, &f.reader, &f.reader_ata, LIMIT);
+    let c = client::open_meter(&f.site, &f.reader, &f.fund, &f.key, LIMIT, EXPIRY);
     assert_same("open_meter", &c, &anchor);
 }
 
@@ -202,9 +292,9 @@ fn meter_and_settle_matches() {
         accounts: pay_on_chain::accounts::MeterAndSettle {
             site: f.site,
             authority: f.authority,
-            reader: f.reader,
+            fund: f.fund,
             meter: f.meter(),
-            reader_token_account: f.reader_ata,
+            fund_token_account: f.fund_ata(),
             treasury: f.treasury,
             mint: f.mint,
             token_program: spl_token::ID,
@@ -212,15 +302,7 @@ fn meter_and_settle_matches() {
         .to_account_metas(None),
         data: pay_on_chain::instruction::MeterAndSettle { items: 7 }.data(),
     };
-    let c = client::meter_and_settle(
-        &f.site,
-        &f.authority,
-        &f.reader,
-        &f.reader_ata,
-        &f.treasury,
-        &f.mint,
-        7,
-    );
+    let c = client::meter_and_settle(&f.site, &f.authority, &f.fund, &f.treasury, &f.mint, 7);
     assert_same("meter_and_settle", &c, &anchor);
 }
 
@@ -232,58 +314,61 @@ fn renew_meter_matches() {
         accounts: pay_on_chain::accounts::RenewMeter {
             reader: f.reader,
             site: f.site,
+            fund: f.fund,
             meter: f.meter(),
-            reader_token_account: f.reader_ata,
-            system_program: system_program::ID,
         }
         .to_account_metas(None),
-        data: pay_on_chain::instruction::RenewMeter { new_limit: LIMIT }.data(),
+        data: pay_on_chain::instruction::RenewMeter {
+            key: f.key,
+            new_limit: LIMIT,
+            expiry: EXPIRY,
+        }
+        .data(),
     };
-    let c = client::renew_meter(&f.site, &f.reader, &f.reader_ata, LIMIT);
+    let c = client::renew_meter(&f.site, &f.reader, &f.fund, &f.key, LIMIT, EXPIRY);
     assert_same("renew_meter", &c, &anchor);
 }
 
 #[test]
 fn close_meter_matches() {
     let f = Fixture::new();
-    let anchor = Instruction {
-        program_id: pay_on_chain::ID,
-        accounts: pay_on_chain::accounts::CloseMeter {
-            reader: f.reader,
-            site: f.site,
-            meter: f.meter(),
-        }
-        .to_account_metas(None),
-        data: pay_on_chain::instruction::CloseMeter {}.data(),
-    };
-    let c = client::close_meter(&f.site, &f.reader);
-    assert_same("close_meter", &c, &anchor);
+    for signer in [f.reader, f.key] {
+        let anchor = Instruction {
+            program_id: pay_on_chain::ID,
+            accounts: pay_on_chain::accounts::CloseMeter {
+                signer,
+                site: f.site,
+                fund: f.fund,
+                reader: f.reader,
+                meter: f.meter(),
+            }
+            .to_account_metas(None),
+            data: pay_on_chain::instruction::CloseMeter {}.data(),
+        };
+        let c = client::close_meter(&signer, &f.reader, &f.site, &f.fund);
+        assert_same("close_meter", &c, &anchor);
+    }
 }
 
-/// The client hand-encodes the SPL Token instructions rather than depending on
-/// spl-token, to keep the WASM bundle small. That trade is only safe if the
-/// bytes match what spl-token itself produces.
+/// The client hand-encodes the SPL `transfer_checked` a deposit is, rather
+/// than depending on spl-token, to keep the WASM bundle small. That trade is
+/// only safe if the bytes match what spl-token itself produces.
 #[test]
-fn hand_rolled_spl_instructions_match_spl_token() {
+fn hand_rolled_deposit_matches_spl_token() {
     let f = Fixture::new();
-
-    let theirs = spl_token::instruction::approve_checked(
+    let theirs = spl_token::instruction::transfer_checked(
         &spl_token::ID,
-        &f.reader_ata,
+        &f.source,
         &f.mint,
-        &f.meter(),
+        &f.fund_ata(),
         &f.reader,
         &[],
         LIMIT,
         DECIMALS,
     )
     .unwrap();
-    let ours = client::approve_checked(&f.reader_ata, &f.mint, &f.reader, &f.site, LIMIT, DECIMALS);
-    assert_same("approve_checked", &ours, &theirs);
-
-    let theirs = spl_token::instruction::revoke(&spl_token::ID, &f.reader_ata, &f.reader, &[]).unwrap();
-    let ours = client::revoke(&f.reader_ata, &f.reader);
-    assert_same("revoke", &ours, &theirs);
+    let ours = client::deposit(&f.source, &f.reader, &f.fund, &f.mint, LIMIT, DECIMALS);
+    assert_same("deposit", &ours, &theirs);
 }
 
 // --- account decoding -----------------------------------------------------
@@ -297,16 +382,9 @@ fn hand_rolled_spl_instructions_match_spl_token() {
 #[test]
 fn client_account_sizes_match_the_program() {
     use anchor_lang::Space;
-    assert_eq!(
-        client_state::SITE_LEN,
-        8 + pay_on_chain::state::Site::INIT_SPACE,
-        "Site length"
-    );
-    assert_eq!(
-        client_state::METER_LEN,
-        8 + pay_on_chain::state::Meter::INIT_SPACE,
-        "Meter length"
-    );
+    assert_eq!(client_state::SITE_LEN, 8 + pay_on_chain::state::Site::INIT_SPACE, "Site");
+    assert_eq!(client_state::FUND_LEN, 8 + pay_on_chain::state::Fund::INIT_SPACE, "Fund");
+    assert_eq!(client_state::METER_LEN, 8 + pay_on_chain::state::Meter::INIT_SPACE, "Meter");
 }
 
 /// The real test: let Anchor write an account exactly as the program would,
@@ -328,7 +406,6 @@ fn client_decodes_what_anchor_serializes() {
     let mut bytes = Vec::new();
     site.try_serialize(&mut bytes).unwrap();
     assert_eq!(bytes.len(), client_state::SITE_LEN, "serialized Site length");
-
     let decoded = client_state::Site::decode(&bytes).expect("client decodes Site");
     assert_eq!(decoded.authority, site.authority);
     assert_eq!(decoded.mint, site.mint);
@@ -338,9 +415,28 @@ fn client_decodes_what_anchor_serializes() {
     assert_eq!(decoded.min_limit, site.min_limit);
     assert_eq!(decoded.bump, site.bump);
 
+    let fund = pay_on_chain::state::Fund {
+        reader: f.reader,
+        mint: f.mint,
+        index: INDEX,
+        meters: 70_000,
+        bump: 252,
+    };
+    let mut bytes = Vec::new();
+    fund.try_serialize(&mut bytes).unwrap();
+    assert_eq!(bytes.len(), client_state::FUND_LEN, "serialized Fund length");
+    let decoded = client_state::Fund::decode(&bytes).expect("client decodes Fund");
+    assert_eq!(decoded.reader, fund.reader);
+    assert_eq!(decoded.mint, fund.mint);
+    assert_eq!(decoded.index, fund.index);
+    assert_eq!(decoded.meters, fund.meters);
+    assert_eq!(decoded.bump, fund.bump);
+
     let meter = pay_on_chain::state::Meter {
         site: f.site,
-        reader: f.reader,
+        fund: f.fund,
+        key: f.key,
+        expiry: -EXPIRY, // a sign bit, so a u64 read would show
         limit: LIMIT,
         used: 120_000,
         paid: 100_000,
@@ -348,15 +444,12 @@ fn client_decodes_what_anchor_serializes() {
     };
     let mut bytes = Vec::new();
     meter.try_serialize(&mut bytes).unwrap();
-    assert_eq!(
-        bytes.len(),
-        client_state::METER_LEN,
-        "serialized Meter length"
-    );
-
+    assert_eq!(bytes.len(), client_state::METER_LEN, "serialized Meter length");
     let decoded = client_state::Meter::decode(&bytes).expect("client decodes Meter");
     assert_eq!(decoded.site, meter.site);
-    assert_eq!(decoded.reader, meter.reader);
+    assert_eq!(decoded.fund, meter.fund);
+    assert_eq!(decoded.key, meter.key);
+    assert_eq!(decoded.expiry, meter.expiry);
     assert_eq!(decoded.limit, meter.limit);
     assert_eq!(decoded.used, meter.used);
     assert_eq!(decoded.paid, meter.paid);
@@ -365,11 +458,12 @@ fn client_decodes_what_anchor_serializes() {
     // The derived helpers must agree with the program's own.
     assert_eq!(decoded.unpaid(), meter.unpaid());
     assert_eq!(decoded.outstanding(), meter.outstanding());
+    for now in [-EXPIRY - 1, -EXPIRY, -EXPIRY + 1] {
+        assert_eq!(decoded.expired(now), meter.expired(now), "expired({now})");
+    }
 }
 
-/// An account of the right size but the wrong type must be refused, not
-/// reinterpreted. Site and Meter differ in length, so the case worth
-/// checking is a Site's bytes with a Meter's discriminator swapped in.
+/// An account of the wrong type must be refused, not reinterpreted.
 #[test]
 fn client_refuses_an_account_of_another_type() {
     let f = Fixture::new();
@@ -384,9 +478,6 @@ fn client_refuses_an_account_of_another_type() {
     };
     let mut bytes = Vec::new();
     site.try_serialize(&mut bytes).unwrap();
-
-    assert!(
-        client_state::Meter::decode(&bytes).is_err(),
-        "a Site must not decode as a Meter"
-    );
+    assert!(client_state::Meter::decode(&bytes).is_err(), "a Site is not a Meter");
+    assert!(client_state::Fund::decode(&bytes).is_err(), "a Site is not a Fund");
 }

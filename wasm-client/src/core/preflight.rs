@@ -15,6 +15,9 @@ use super::state::{Meter, Site};
 /// Why a metering call would be refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Blocked {
+    /// The meter is past its expiry. The remedy is a renewal, same as for a
+    /// full meter, but the reader is told something different.
+    Expired,
     /// The charge would carry `used` past the authorized limit. The program
     /// refuses the whole call rather than metering part of it, so the site
     /// must renew or stop, not meter fewer items and hope.
@@ -27,6 +30,7 @@ pub enum Blocked {
 impl core::fmt::Display for Blocked {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Blocked::Expired => write!(f, "the meter is past its expiry"),
             Blocked::LimitReached { over } => {
                 write!(f, "charge exceeds the authorized limit by {over}")
             }
@@ -40,8 +44,17 @@ pub fn charge(site: &Site, items: u32) -> Option<u64> {
     site.item_price.checked_mul(items as u64)
 }
 
-/// Mirrors `require!(new_used <= limit, LimitReached)`.
-pub fn can_meter(meter: &Meter, site: &Site, items: u32) -> Result<(), Blocked> {
+/// Mirrors the program's two refusals, in the program's order: `Expired`
+/// when `now > expiry`, then `LimitReached` when `used + charge > limit`.
+///
+/// `now` is an argument because this crate has no clock, the same way it has
+/// no RPC: pass the time the server trusts. The program reads the cluster's
+/// clock, so a server whose clock is off will disagree near the expiry by
+/// exactly that much (SPEC §6.3).
+pub fn can_meter(meter: &Meter, site: &Site, items: u32, now: i64) -> Result<(), Blocked> {
+    if meter.expired(now) {
+        return Err(Blocked::Expired);
+    }
     let charge = charge(site, items).ok_or(Blocked::Overflow)?;
     let new_used = meter.used.checked_add(charge).ok_or(Blocked::Overflow)?;
     if new_used > meter.limit {
@@ -54,7 +67,7 @@ pub fn can_meter(meter: &Meter, site: &Site, items: u32) -> Result<(), Blocked> 
 
 /// Whether this call would also move money, rather than only accruing usage.
 ///
-/// Worth knowing because a settling call touches the treasury and the reader's
+/// Worth knowing because a settling call touches the treasury and the fund's
 /// token account, so it is the one that can fail on a low balance.
 pub fn will_settle(meter: &Meter, site: &Site, items: u32) -> bool {
     match charge(site, items).and_then(|c| meter.used.checked_add(c)) {
@@ -86,13 +99,10 @@ pub fn limit_floor(site: &Site, meter: Option<&Meter>) -> u64 {
     site.min_limit.max(carried)
 }
 
-/// What the SPL approval must cover for a meter at `limit`.
-///
-/// The whole limit: nothing is paid against a new limit yet, and the program
-/// checks the allowance against it at open and at renew.
-pub fn required_allowance(limit: u64) -> u64 {
-    limit
-}
+// Nothing here checks the fund's balance against a limit, deliberately: the
+// program does not check it at open or renew (SPEC §4.7), so a predicate that
+// did would be prescribing site policy. `error::shortfall` answers the
+// balance question at the moment the program actually asks it, a settle.
 
 #[cfg(test)]
 mod tests {
@@ -111,10 +121,14 @@ mod tests {
         }
     }
 
+    const NOW: i64 = 1_800_000_000;
+
     fn meter(limit: u64, used: u64, paid: u64) -> Meter {
         Meter {
             site: Pubkey::new_from_array([1u8; 32]),
-            reader: Pubkey::new_from_array([2u8; 32]),
+            fund: Pubkey::new_from_array([2u8; 32]),
+            key: Pubkey::new_from_array([3u8; 32]),
+            expiry: NOW + 3_600,
             limit,
             used,
             paid,
@@ -126,11 +140,11 @@ mod tests {
     fn can_meter_stops_exactly_where_the_program_does() {
         let s = site(10, 100, 500);
         let c = meter(1_000, 990, 0);
-        assert_eq!(can_meter(&c, &s, 1), Ok(()));
+        assert_eq!(can_meter(&c, &s, 1, NOW), Ok(()));
         // 990 + 10 = 1000, exactly the limit, still allowed.
         let c = meter(1_000, 1_000, 0);
         assert_eq!(
-            can_meter(&c, &s, 1),
+            can_meter(&c, &s, 1, NOW),
             Err(Blocked::LimitReached { over: 10 })
         );
     }
@@ -140,7 +154,7 @@ mod tests {
         let s = site(10, 100, 500);
         let c = meter(1_000, 950, 0);
         assert_eq!(
-            can_meter(&c, &s, 10),
+            can_meter(&c, &s, 10, NOW),
             Err(Blocked::LimitReached { over: 50 })
         );
     }
@@ -149,7 +163,7 @@ mod tests {
     fn overflow_is_blocked_not_wrapped() {
         let s = site(u64::MAX / 2, 100, 500);
         let c = meter(u64::MAX, 0, 0);
-        assert_eq!(can_meter(&c, &s, 3), Err(Blocked::Overflow));
+        assert_eq!(can_meter(&c, &s, 3, NOW), Err(Blocked::Overflow));
         assert_eq!(charge(&s, 3), None);
         assert!(!will_settle(&c, &s, 3));
     }
@@ -195,8 +209,20 @@ mod tests {
         assert_eq!(limit_floor(&s, Some(&meter(1_000, 900, 200))), 700);
     }
 
+    /// Expiry is checked first, as the program checks it, and the expiry
+    /// second itself still meters.
     #[test]
-    fn required_allowance_is_the_whole_limit() {
-        assert_eq!(required_allowance(12_345), 12_345);
+    fn expiry_comes_before_the_limit_and_is_inclusive() {
+        let s = site(10, 100, 500);
+        let full = meter(1_000, 1_000, 0);
+        assert_eq!(can_meter(&full, &s, 1, full.expiry + 1), Err(Blocked::Expired));
+        assert_eq!(
+            can_meter(&full, &s, 1, full.expiry),
+            Err(Blocked::LimitReached { over: 10 })
+        );
+
+        let fresh = meter(1_000, 0, 0);
+        assert_eq!(can_meter(&fresh, &s, 1, fresh.expiry), Ok(()));
+        assert_eq!(can_meter(&fresh, &s, 1, fresh.expiry + 1), Err(Blocked::Expired));
     }
 }

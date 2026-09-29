@@ -1,18 +1,21 @@
-//! Whole transactions, in the order the program requires.
+//! Instructions that have to travel in a particular order.
 //!
 //! Convenience, not a gate: every builder in [`super::ix`] stays public and
 //! nothing here is reachable only through these. They exist so the correct
 //! thing is also the shortest thing to write.
 //!
-//! The rule they encode is the one an integrator gets wrong once and then
-//! debugs for an hour: `open_meter` and `renew_meter` verify on chain
-//! that the reader's token account already names the meter PDA as delegate,
-//! and they fail rather than trust the client to have done it. The approval
-//! must therefore come *earlier in the same transaction*.
+//! One ordering rule remains now that there is no delegate (SPEC §6.5): the
+//! fund's token account has to exist before anything lands in it, so
+//! `open_fund` precedes the deposit. The runtime refuses a transfer to an
+//! account that does not exist yet with an error that names neither the fund
+//! nor the deposit, which is why the pair is written down once, here.
 //!
-//! The names say the pair and its order outright -- `approve_and_open`, not
-//! `open_meter` again -- because these sit on [`Program`] alongside the
-//! single-instruction builders they wrap.
+//! `open_meter` and `renew_meter` may sit anywhere in the same transaction
+//! relative to the deposit, because neither checks the balance. The setup
+//! transaction a reader's wallet signs (SPEC §4.9) is therefore
+//! `open_fund_and_deposit` followed by `open_meter` for a new reader,
+//! `deposit` then `open_meter` for a reader with a fund, and `deposit` then
+//! `renew_meter` for one with a meter at this site.
 
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
@@ -20,154 +23,76 @@ use solana_pubkey::Pubkey;
 use super::program::Program;
 
 impl Program {
-    /// Authorize, then open. Both signed by the reader.
-    pub fn approve_and_open(
+    /// Open the fund at `index`, then deposit `amount` into it from the
+    /// reader's own `source` token account. Both signed by the reader.
+    #[allow(clippy::too_many_arguments)]
+    pub fn open_fund_and_deposit(
         &self,
-        reader_token_account: &Pubkey,
-        mint: &Pubkey,
         reader: &Pubkey,
-        site: &Pubkey,
-        limit: u64,
+        mint: &Pubkey,
+        index: u8,
+        source: &Pubkey,
+        amount: u64,
         decimals: u8,
     ) -> [Instruction; 2] {
+        let (fund, _) = self.fund_address(reader, mint, index);
         [
-            self.approve_checked(reader_token_account, mint, reader, site, limit, decimals),
-            self.open_meter(site, reader, reader_token_account, limit),
-        ]
-    }
-
-    /// Re-authorize at the new limit, then renew.
-    ///
-    /// `approve` *replaces* an allowance rather than adding to it, so the new
-    /// limit is passed outright rather than as a difference.
-    pub fn approve_and_renew(
-        &self,
-        reader_token_account: &Pubkey,
-        mint: &Pubkey,
-        reader: &Pubkey,
-        site: &Pubkey,
-        new_limit: u64,
-        decimals: u8,
-    ) -> [Instruction; 2] {
-        [
-            self.approve_checked(reader_token_account, mint, reader, site, new_limit, decimals),
-            self.renew_meter(site, reader, reader_token_account, new_limit),
-        ]
-    }
-
-    /// Close, then withdraw the approval.
-    ///
-    /// The leftover approval is inert once the meter account is gone -- the
-    /// PDA can no longer sign -- but it stays visible in the reader's wallet
-    /// until revoked, and a token account has exactly one delegate, so leaving
-    /// it in place blocks the reader opening a meter with another site.
-    pub fn close_and_revoke(
-        &self,
-        reader_token_account: &Pubkey,
-        reader: &Pubkey,
-        site: &Pubkey,
-    ) -> [Instruction; 2] {
-        [
-            self.close_meter(site, reader),
-            self.revoke(reader_token_account, reader),
+            self.open_fund(reader, mint, index),
+            self.deposit(source, reader, &fund, mint, amount, decimals),
         ]
     }
 }
 
 // --- the canonical deployment, on SPL Token ------------------------------
 
-/// Authorize, then open. Both signed by the reader.
-pub fn approve_and_open(
-    reader_token_account: &Pubkey,
-    mint: &Pubkey,
+/// Open the fund, then deposit into it. Both signed by the reader.
+pub fn open_fund_and_deposit(
     reader: &Pubkey,
-    site: &Pubkey,
-    limit: u64,
+    mint: &Pubkey,
+    index: u8,
+    source: &Pubkey,
+    amount: u64,
     decimals: u8,
 ) -> [Instruction; 2] {
-    Program::default().approve_and_open(reader_token_account, mint, reader, site, limit, decimals)
-}
-
-/// Re-authorize at the new limit, then renew.
-pub fn approve_and_renew(
-    reader_token_account: &Pubkey,
-    mint: &Pubkey,
-    reader: &Pubkey,
-    site: &Pubkey,
-    new_limit: u64,
-    decimals: u8,
-) -> [Instruction; 2] {
-    Program::default().approve_and_renew(reader_token_account, mint, reader, site, new_limit, decimals)
-}
-
-/// Close, then withdraw the approval.
-pub fn close_and_revoke(
-    reader_token_account: &Pubkey,
-    reader: &Pubkey,
-    site: &Pubkey,
-) -> [Instruction; 2] {
-    Program::default().close_and_revoke(reader_token_account, reader, site)
+    Program::default().open_fund_and_deposit(reader, mint, index, source, amount, decimals)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::core::ids::{PAY_ON_CHAIN_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID};
-    use crate::core::ix;
+    use crate::core::{ix, pda};
 
     fn k(b: u8) -> Pubkey {
         Pubkey::new_from_array([b; 32])
     }
 
     #[test]
-    fn the_approval_comes_first() {
-        let t = approve_and_open(&k(1), &k(2), &k(3), &k(4), 500, 6);
-        assert_eq!(t[0].program_id, TOKEN_PROGRAM_ID, "approve is first");
-        assert_eq!(t[1].program_id, PAY_ON_CHAIN_ID);
-
-        let t = approve_and_renew(&k(1), &k(2), &k(3), &k(4), 900, 6);
-        assert_eq!(t[0].program_id, TOKEN_PROGRAM_ID);
-        assert_eq!(t[1].program_id, PAY_ON_CHAIN_ID);
+    fn the_fund_is_opened_before_anything_lands_in_it() {
+        let t = open_fund_and_deposit(&k(1), &k(2), 0, &k(3), 500, 6);
+        assert_eq!(t[0].program_id, PAY_ON_CHAIN_ID, "open_fund is first");
+        assert_eq!(t[1].program_id, TOKEN_PROGRAM_ID, "the deposit follows");
     }
 
     #[test]
     fn the_pair_matches_the_builders_it_wraps() {
-        let (ata, mint, reader, site) = (k(1), k(2), k(3), k(4));
-        let t = approve_and_open(&ata, &mint, &reader, &site, 500, 6);
-        assert_eq!(t[0], ix::approve_checked(&ata, &mint, &reader, &site, 500, 6));
-        assert_eq!(t[1], ix::open_meter(&site, &reader, &ata, 500));
+        let (reader, mint, source) = (k(1), k(2), k(3));
+        let (fund, _) = pda::fund_address(&reader, &mint, 4);
+        let t = open_fund_and_deposit(&reader, &mint, 4, &source, 500, 6);
+        assert_eq!(t[0], ix::open_fund(&reader, &mint, 4));
+        assert_eq!(t[1], ix::deposit(&source, &reader, &fund, &mint, 500, 6));
     }
 
+    /// Both halves follow the handle: the program half by its program id, the
+    /// SPL half by the fund PDA it deposits into and the token program it
+    /// goes to.
     #[test]
-    fn closing_revokes_after_the_close() {
-        let t = close_and_revoke(&k(1), &k(3), &k(4));
-        assert_eq!(t[0].program_id, PAY_ON_CHAIN_ID, "close is first");
-        assert_eq!(t[1].program_id, TOKEN_PROGRAM_ID, "revoke follows");
-        assert_eq!(t[1], ix::revoke(&k(1), &k(3)));
-    }
-
-    /// Both halves of the pair follow the deployment: the program half by its
-    /// program id, the SPL half by the PDA it delegates to.
-    #[test]
-    fn a_pair_stays_within_one_deployment() {
-        let mine = Program::new(k(9));
-        let t = mine.approve_and_open(&k(1), &k(2), &k(3), &k(4), 500, 6);
-        assert_eq!(t[1].program_id, k(9));
-        assert_eq!(t[0].accounts[2].pubkey, mine.meter_address(&k(4), &k(3)).0);
-    }
-
-    /// And within one token program. A pair built by a Token-2022 handle must
-    /// not send half the transaction to SPL Token.
-    #[test]
-    fn a_pair_stays_within_one_token_program() {
-        let t22 = Program::default().with_token_program(TOKEN_2022_PROGRAM_ID);
-
-        let t = t22.approve_and_open(&k(1), &k(2), &k(3), &k(4), 500, 6);
-        assert_eq!(t[0].program_id, TOKEN_2022_PROGRAM_ID);
-        assert_eq!(t[1].program_id, PAY_ON_CHAIN_ID);
-
-        let t = t22.close_and_revoke(&k(1), &k(3), &k(4));
-        assert_eq!(t[0].program_id, PAY_ON_CHAIN_ID);
-        assert_eq!(t[1].program_id, TOKEN_2022_PROGRAM_ID, "revoke follows too");
+    fn a_pair_stays_within_one_deployment_and_one_token_program() {
+        let mine = Program::new(k(9)).with_token_program(TOKEN_2022_PROGRAM_ID);
+        let t = mine.open_fund_and_deposit(&k(1), &k(2), 0, &k(3), 500, 6);
+        assert_eq!(t[0].program_id, k(9));
+        assert_eq!(t[1].program_id, TOKEN_2022_PROGRAM_ID);
+        let (fund, _) = mine.fund_address(&k(1), &k(2), 0);
+        assert_eq!(t[1].accounts[2].pubkey, mine.fund_token_account(&fund, &k(2)));
     }
 }

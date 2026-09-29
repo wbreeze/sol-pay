@@ -10,20 +10,21 @@
 //! { programAddress: string, accounts: [{ address, role }], data: Uint8Array }
 //! ```
 //!
-//! Signing is deliberately absent. Wallet Standard is browser JavaScript, so
-//! the wallet adapter assembles and signs; this crate decides *what* is being
-//! signed.
+//! Signing is deliberately absent. The reader's wallet signs what the site's
+//! server composes, through a Solana Pay transaction request (SPEC §4.9), and
+//! the page's browser key signs with WebCrypto; this crate decides *what* is
+//! being signed.
 //!
 //! Anything that depends on *which* deployment of the metering program is
 //! being addressed hangs off the `PayOnChain` class; the rest -- decoding,
-//! unit conversion, preflight arithmetic, `revoke` -- is free-standing,
+//! unit conversion, preflight arithmetic, `shortfall` -- is free-standing,
 //! because it is the same whoever deployed the program.
 //!
 //! ```js
 //! import init, { PayOnChain, canMeter } from "sol-pay-client";
 //! await init();
 //! const pay = new PayOnChain();          // or new PayOnChain(yourProgramId)
-//! const [approve, open] = pay.approveAndOpen(...);
+//! const [openFund, deposit] = pay.openFundAndDeposit(...);
 //! ```
 
 pub mod core;
@@ -76,9 +77,22 @@ mod bindings {
 
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
+    struct JsFund {
+        reader: String,
+        mint: String,
+        index: u8,
+        meters: u32,
+        bump: u8,
+    }
+
+    /// `expiry` crosses as `BigInt` too: it is an `i64` of Unix seconds.
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
     struct JsMeter {
         site: String,
-        reader: String,
+        fund: String,
+        key: String,
+        expiry: i64,
         limit: u64,
         used: u64,
         paid: u64,
@@ -93,15 +107,6 @@ mod bindings {
         reason: &'static str,
         #[serde(skip_serializing_if = "Option::is_none")]
         over: Option<u64>,
-    }
-
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct JsShortfall {
-        balance_short: u64,
-        allowance_short: u64,
-        delegate_present: bool,
-        is_clear: bool,
     }
 
     #[derive(Serialize)]
@@ -159,11 +164,25 @@ mod bindings {
         }
     }
 
+    impl From<state::Fund> for JsFund {
+        fn from(f: state::Fund) -> Self {
+            JsFund {
+                reader: f.reader.to_string(),
+                mint: f.mint.to_string(),
+                index: f.index,
+                meters: f.meters,
+                bump: f.bump,
+            }
+        }
+    }
+
     impl From<state::Meter> for JsMeter {
         fn from(c: state::Meter) -> Self {
             JsMeter {
                 site: c.site.to_string(),
-                reader: c.reader.to_string(),
+                fund: c.fund.to_string(),
+                key: c.key.to_string(),
+                expiry: c.expiry,
                 limit: c.limit,
                 used: c.used,
                 paid: c.paid,
@@ -241,6 +260,13 @@ mod bindings {
             .map_err(|e| JsError::new(&e.to_string()))
     }
 
+    /// Decode a `Fund` account fetched with `getAccountInfo`.
+    #[wasm_bindgen(js_name = decodeFund)]
+    pub fn decode_fund(data: &[u8]) -> Result<JsValue, JsError> {
+        let fund = state::Fund::decode(data).map_err(|e| JsError::new(&e.to_string()))?;
+        serde_wasm_bindgen::to_value(&JsFund::from(fund)).map_err(|e| JsError::new(&e.to_string()))
+    }
+
     /// Decode a `Meter` account fetched with `getAccountInfo`.
     #[wasm_bindgen(js_name = decodeMeter)]
     pub fn decode_meter(data: &[u8]) -> Result<JsValue, JsError> {
@@ -249,7 +275,7 @@ mod bindings {
             .map_err(|e| JsError::new(&e.to_string()))
     }
 
-    /// The mint's decimals, which `approveChecked` needs.
+    /// The mint's decimals, which `deposit` needs.
     #[wasm_bindgen(js_name = mintDecimals)]
     pub fn mint_decimals(mint_account_data: &[u8]) -> Result<u8, JsError> {
         state::mint_decimals(mint_account_data).map_err(|e| JsError::new(&e.to_string()))
@@ -284,16 +310,22 @@ mod bindings {
     }
 
     /// `null` when the call would succeed; otherwise why it would not.
+    /// `now` is Unix seconds as the server trusts them, as a `BigInt`.
     #[wasm_bindgen(js_name = canMeter)]
     pub fn can_meter(
         site_data: &[u8],
         meter_data: &[u8],
         items: u32,
+        now: i64,
     ) -> Result<JsValue, JsError> {
         let site = site_of(site_data)?;
         let meter = meter_of(meter_data)?;
-        match preflight::can_meter(&meter, &site, items) {
+        match preflight::can_meter(&meter, &site, items, now) {
             Ok(()) => Ok(JsValue::NULL),
+            Err(preflight::Blocked::Expired) => js(&JsBlocked {
+                reason: "expired",
+                over: None,
+            }),
             Err(preflight::Blocked::LimitReached { over }) => js(&JsBlocked {
                 reason: "limitReached",
                 over: Some(over),
@@ -342,23 +374,13 @@ mod bindings {
 
     // --- failures ---------------------------------------------------------
 
-    /// Which constraint on the reader's token account is short, and by how
-    /// much. SPL reports a short balance and a short allowance identically,
-    /// so this reads the account rather than guessing from the code.
-    ///
-    /// Deployment-independent: it reads an SPL token account, and the amount
-    /// it compares against is one the caller already has.
-    #[wasm_bindgen(js_name = diagnose)]
-    pub fn diagnose(token_account_data: &[u8], unpaid: u64) -> Result<JsValue, JsError> {
+    /// How much the fund's token account is short of a settle of `unpaid`.
+    /// Zero when it covers it. Pass the fund's token account data.
+    #[wasm_bindgen(js_name = shortfall)]
+    pub fn shortfall(token_account_data: &[u8], unpaid: u64) -> Result<u64, JsError> {
         let account = state::TokenAccount::decode(token_account_data)
             .map_err(|e| JsError::new(&e.to_string()))?;
-        let s = error::diagnose(&account, unpaid);
-        js(&JsShortfall {
-            balance_short: s.balance_short,
-            allowance_short: s.allowance_short,
-            delegate_present: s.delegate_present,
-            is_clear: s.is_clear(),
-        })
+        Ok(error::shortfall(&account, unpaid))
     }
 
     // --- the deployment ---------------------------------------------------
@@ -439,11 +461,30 @@ mod bindings {
             Ok(self.inner.site_address(&authority).0.to_string())
         }
 
+        #[wasm_bindgen(js_name = deriveFundAddress)]
+        pub fn derive_fund_address(&self, reader: &str, mint: &str, index: u8) -> Result<String, JsError> {
+            Ok(self
+                .inner
+                .fund_address(&key(reader, "reader")?, &key(mint, "mint")?, index)
+                .0
+                .to_string())
+        }
+
+        /// Where a deposit goes: the fund's associated token account, under
+        /// this instance's token program.
+        #[wasm_bindgen(js_name = deriveFundTokenAccount)]
+        pub fn derive_fund_token_account(&self, fund: &str, mint: &str) -> Result<String, JsError> {
+            Ok(self
+                .inner
+                .fund_token_account(&key(fund, "fund")?, &key(mint, "mint")?)
+                .to_string())
+        }
+
         #[wasm_bindgen(js_name = deriveMeterAddress)]
-        pub fn derive_meter_address(&self, site: &str, reader: &str) -> Result<String, JsError> {
+        pub fn derive_meter_address(&self, site: &str, fund: &str) -> Result<String, JsError> {
             let site = key(site, "site")?;
-            let reader = key(reader, "reader")?;
-            Ok(self.inner.meter_address(&site, &reader).0.to_string())
+            let fund = key(fund, "fund")?;
+            Ok(self.inner.meter_address(&site, &fund).0.to_string())
         }
 
         // --- failures -----------------------------------------------------
@@ -462,60 +503,26 @@ mod bindings {
 
         // --- transactions -------------------------------------------------
         //
-        // The approve must precede the program instruction, and these put it
+        // The fund must exist before the deposit lands, and this puts it
         // there. The individual builders below stay public.
 
-        #[wasm_bindgen(js_name = approveAndOpen)]
-        pub fn approve_and_open(
+        #[wasm_bindgen(js_name = openFundAndDeposit)]
+        pub fn open_fund_and_deposit(
             &self,
-            reader_token_account: &str,
-            mint: &str,
             reader: &str,
-            site: &str,
-            limit: u64,
+            mint: &str,
+            index: u8,
+            source: &str,
+            amount: u64,
             decimals: u8,
         ) -> Result<JsValue, JsError> {
-            out_many(self.inner.approve_and_open(
-                &key(reader_token_account, "readerTokenAccount")?,
+            out_many(self.inner.open_fund_and_deposit(
+                &key(reader, "reader")?,
                 &key(mint, "mint")?,
-                &key(reader, "reader")?,
-                &key(site, "site")?,
-                limit,
+                index,
+                &key(source, "source")?,
+                amount,
                 decimals,
-            ))
-        }
-
-        #[wasm_bindgen(js_name = approveAndRenew)]
-        pub fn approve_and_renew(
-            &self,
-            reader_token_account: &str,
-            mint: &str,
-            reader: &str,
-            site: &str,
-            new_limit: u64,
-            decimals: u8,
-        ) -> Result<JsValue, JsError> {
-            out_many(self.inner.approve_and_renew(
-                &key(reader_token_account, "readerTokenAccount")?,
-                &key(mint, "mint")?,
-                &key(reader, "reader")?,
-                &key(site, "site")?,
-                new_limit,
-                decimals,
-            ))
-        }
-
-        #[wasm_bindgen(js_name = closeAndRevoke)]
-        pub fn close_and_revoke(
-            &self,
-            reader_token_account: &str,
-            reader: &str,
-            site: &str,
-        ) -> Result<JsValue, JsError> {
-            out_many(self.inner.close_and_revoke(
-                &key(reader_token_account, "readerTokenAccount")?,
-                &key(reader, "reader")?,
-                &key(site, "site")?,
             ))
         }
 
@@ -541,66 +548,88 @@ mod bindings {
             ))
         }
 
-        /// Authorize the meter PDA to pull up to `amount`. Put this
-        /// *before* `openMeter` or `renewMeter` in the same
-        /// transaction.
-        #[wasm_bindgen(js_name = approveChecked)]
-        pub fn approve_checked(
+        #[wasm_bindgen(js_name = openFund)]
+        pub fn open_fund(&self, reader: &str, mint: &str, index: u8) -> Result<JsValue, JsError> {
+            out(self
+                .inner
+                .open_fund(&key(reader, "reader")?, &key(mint, "mint")?, index))
+        }
+
+        /// Extend a fund: an SPL transfer from `source`, owned by
+        /// `sourceOwner`, into the fund's token account.
+        #[wasm_bindgen(js_name = deposit)]
+        pub fn deposit(
             &self,
-            reader_token_account: &str,
+            source: &str,
+            source_owner: &str,
+            fund: &str,
             mint: &str,
-            reader: &str,
-            site: &str,
             amount: u64,
             decimals: u8,
         ) -> Result<JsValue, JsError> {
-            out(self.inner.approve_checked(
-                &key(reader_token_account, "readerTokenAccount")?,
+            out(self.inner.deposit(
+                &key(source, "source")?,
+                &key(source_owner, "sourceOwner")?,
+                &key(fund, "fund")?,
                 &key(mint, "mint")?,
-                &key(reader, "reader")?,
-                &key(site, "site")?,
                 amount,
                 decimals,
             ))
         }
 
-        /// Withdraw the authorization. Worth pairing with `closeMeter`.
-        #[wasm_bindgen(js_name = revoke)]
-        pub fn revoke(
+        #[wasm_bindgen(js_name = withdraw)]
+        pub fn withdraw(
             &self,
-            reader_token_account: &str,
             reader: &str,
+            mint: &str,
+            index: u8,
+            destination: &str,
+            amount: u64,
         ) -> Result<JsValue, JsError> {
-            out(self.inner.revoke(
-                &key(reader_token_account, "readerTokenAccount")?,
+            out(self.inner.withdraw(
                 &key(reader, "reader")?,
+                &key(mint, "mint")?,
+                index,
+                &key(destination, "destination")?,
+                amount,
             ))
         }
 
+        #[wasm_bindgen(js_name = closeFund)]
+        pub fn close_fund(&self, reader: &str, mint: &str, index: u8) -> Result<JsValue, JsError> {
+            out(self
+                .inner
+                .close_fund(&key(reader, "reader")?, &key(mint, "mint")?, index))
+        }
+
+        /// `key` is the browser's public key, base58; `expiry` is Unix
+        /// seconds as a `BigInt`.
         #[wasm_bindgen(js_name = openMeter)]
         pub fn open_meter(
             &self,
             site: &str,
             reader: &str,
-            reader_token_account: &str,
+            fund: &str,
+            key_: &str,
             limit: u64,
+            expiry: i64,
         ) -> Result<JsValue, JsError> {
             out(self.inner.open_meter(
                 &key(site, "site")?,
                 &key(reader, "reader")?,
-                &key(reader_token_account, "readerTokenAccount")?,
+                &key(fund, "fund")?,
+                &key(key_, "key")?,
                 limit,
+                expiry,
             ))
         }
 
         #[wasm_bindgen(js_name = meterAndSettle)]
-        #[allow(clippy::too_many_arguments)]
         pub fn meter_and_settle(
             &self,
             site: &str,
             authority: &str,
-            reader: &str,
-            reader_token_account: &str,
+            fund: &str,
             treasury: &str,
             mint: &str,
             items: u32,
@@ -608,8 +637,7 @@ mod bindings {
             out(self.inner.meter_and_settle(
                 &key(site, "site")?,
                 &key(authority, "authority")?,
-                &key(reader, "reader")?,
-                &key(reader_token_account, "readerTokenAccount")?,
+                &key(fund, "fund")?,
                 &key(treasury, "treasury")?,
                 &key(mint, "mint")?,
                 items,
@@ -621,22 +649,37 @@ mod bindings {
             &self,
             site: &str,
             reader: &str,
-            reader_token_account: &str,
+            fund: &str,
+            key_: &str,
             new_limit: u64,
+            expiry: i64,
         ) -> Result<JsValue, JsError> {
             out(self.inner.renew_meter(
                 &key(site, "site")?,
                 &key(reader, "reader")?,
-                &key(reader_token_account, "readerTokenAccount")?,
+                &key(fund, "fund")?,
+                &key(key_, "key")?,
                 new_limit,
+                expiry,
             ))
         }
 
+        /// `signer` is the reader or the meter's key. Key-signed, this is
+        /// sign-out; the page signs the bytes and the server pays the fee.
         #[wasm_bindgen(js_name = closeMeter)]
-        pub fn close_meter(&self, site: &str, reader: &str) -> Result<JsValue, JsError> {
-            out(self
-                .inner
-                .close_meter(&key(site, "site")?, &key(reader, "reader")?))
+        pub fn close_meter(
+            &self,
+            signer: &str,
+            reader: &str,
+            site: &str,
+            fund: &str,
+        ) -> Result<JsValue, JsError> {
+            out(self.inner.close_meter(
+                &key(signer, "signer")?,
+                &key(reader, "reader")?,
+                &key(site, "site")?,
+                &key(fund, "fund")?,
+            ))
         }
     }
 }

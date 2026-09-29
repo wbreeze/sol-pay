@@ -23,13 +23,16 @@ use solana_pubkey::Pubkey;
 /// instruction discriminators are; the parity tests recompute them.
 pub mod discriminator {
     pub const SITE: [u8; 8] = [143, 255, 52, 15, 65, 165, 94, 49];
+    pub const FUND: [u8; 8] = [62, 128, 183, 208, 91, 31, 212, 209];
     pub const METER: [u8; 8] = [5, 115, 227, 240, 63, 166, 206, 182];
 }
 
 /// 8 discriminator + 32 + 32 + 32 + 8 + 8 + 8 + 1
 pub const SITE_LEN: usize = 129;
-/// 8 discriminator + 32 + 32 + 8 + 8 + 8 + 1
-pub const METER_LEN: usize = 97;
+/// 8 discriminator + 32 + 32 + 1 + 4 + 1
+pub const FUND_LEN: usize = 78;
+/// 8 discriminator + 32 + 32 + 32 + 8 + 8 + 8 + 8 + 1
+pub const METER_LEN: usize = 137;
 /// SPL mint accounts are at least this long; Token-2022 adds extensions after.
 pub const MINT_MIN_LEN: usize = 82;
 /// SPL token accounts are at least this long, same caveat.
@@ -69,11 +72,29 @@ pub struct Site {
     pub bump: u8,
 }
 
-/// One reader's spending meter with one site.
+/// A reader's money in one mint, held by the program (SPEC §4.7). The balance
+/// is not here: it is the balance of the fund's token account, which
+/// [`TokenAccount::decode`] reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Fund {
+    pub reader: Pubkey,
+    pub mint: Pubkey,
+    pub index: u8,
+    /// Meters currently open against this fund.
+    pub meters: u32,
+    pub bump: u8,
+}
+
+/// One reader's running account with one site, drawn from one fund.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Meter {
     pub site: Pubkey,
-    pub reader: Pubkey,
+    pub fund: Pubkey,
+    /// The browser key this meter answers to (SPEC §4.8).
+    pub key: Pubkey,
+    /// Unix seconds. Past it the meter cannot be metered and its key proves
+    /// nothing.
+    pub expiry: i64,
     pub limit: u64,
     pub used: u64,
     pub paid: u64,
@@ -86,9 +107,15 @@ impl Meter {
         self.used.saturating_sub(self.paid)
     }
 
-    /// What the delegate allowance still has to cover under the current limit.
+    /// Everything that may yet be transferred under the current limit.
     pub fn outstanding(&self) -> u64 {
         self.limit.saturating_sub(self.paid)
+    }
+
+    /// Past its expiry at `now`. The program still meters at `now == expiry`,
+    /// so this is `>`, and the parity test pins it one second either side.
+    pub fn expired(&self, now: i64) -> bool {
+        now > self.expiry
     }
 }
 
@@ -151,6 +178,20 @@ impl<'a> Reader<'a> {
         u64::from_le_bytes(buf)
     }
 
+    fn i64(&mut self) -> i64 {
+        let mut buf = [0u8; 8];
+        buf.copy_from_slice(&self.bytes[self.at..self.at + 8]);
+        self.at += 8;
+        i64::from_le_bytes(buf)
+    }
+
+    fn u32(&mut self) -> u32 {
+        let mut buf = [0u8; 4];
+        buf.copy_from_slice(&self.bytes[self.at..self.at + 4]);
+        self.at += 4;
+        u32::from_le_bytes(buf)
+    }
+
     fn u8(&mut self) -> u8 {
         let b = self.bytes[self.at];
         self.at += 1;
@@ -174,13 +215,29 @@ impl Site {
     }
 }
 
+impl Fund {
+    pub fn decode(data: &[u8]) -> Result<Self, DecodeError> {
+        check(data, discriminator::FUND, FUND_LEN)?;
+        let mut r = Reader::new(data, 8);
+        Ok(Fund {
+            reader: r.pubkey(),
+            mint: r.pubkey(),
+            index: r.u8(),
+            meters: r.u32(),
+            bump: r.u8(),
+        })
+    }
+}
+
 impl Meter {
     pub fn decode(data: &[u8]) -> Result<Self, DecodeError> {
         check(data, discriminator::METER, METER_LEN)?;
         let mut r = Reader::new(data, 8);
         Ok(Meter {
             site: r.pubkey(),
-            reader: r.pubkey(),
+            fund: r.pubkey(),
+            key: r.pubkey(),
+            expiry: r.i64(),
             limit: r.u64(),
             used: r.u64(),
             paid: r.u64(),
@@ -191,8 +248,8 @@ impl Meter {
 
 /// The mint's decimals, one byte at a fixed offset.
 ///
-/// `approve_checked` needs this and there is nowhere else to get it without
-/// decoding a mint by hand. Accepts anything at least mint-sized, so a
+/// `deposit` and `withdraw` need this and there is nowhere else to get it
+/// without decoding a mint by hand. Accepts anything at least mint-sized, so a
 /// Token-2022 mint carrying extensions decodes too.
 pub fn mint_decimals(mint_account_data: &[u8]) -> Result<u8, DecodeError> {
     if mint_account_data.len() < MINT_MIN_LEN {
@@ -205,11 +262,13 @@ pub fn mint_decimals(mint_account_data: &[u8]) -> Result<u8, DecodeError> {
 }
 
 
-/// The reader's SPL token account, as much of it as this crate needs.
+/// An SPL token account, as much of it as this crate needs: in practice a
+/// fund's token account, whose `amount` is the fund's balance.
 ///
 /// Not an Anchor account, so no discriminator: SPL writes a fixed 165-byte
 /// layout. Token-2022 appends extensions past that, which is why anything at
-/// least that long decodes.
+/// least that long decodes. The delegate fields are decoded because they are
+/// in the layout; nothing in this crate reads them any more.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TokenAccount {
     pub mint: Pubkey,
@@ -302,7 +361,9 @@ mod tests {
     fn unpaid_and_outstanding_saturate() {
         let c = Meter {
             site: Pubkey::new_from_array([0u8; 32]),
-            reader: Pubkey::new_from_array([0u8; 32]),
+            fund: Pubkey::new_from_array([0u8; 32]),
+            key: Pubkey::new_from_array([0u8; 32]),
+            expiry: 1_000,
             limit: 100,
             used: 40,
             paid: 60, // impossible on chain; the helpers must not panic
@@ -310,6 +371,43 @@ mod tests {
         };
         assert_eq!(c.unpaid(), 0);
         assert_eq!(c.outstanding(), 40);
+        assert!(!c.expired(1_000), "the expiry second itself still meters");
+        assert!(c.expired(1_001));
+    }
+
+    #[test]
+    fn meter_and_fund_decode_field_by_field() {
+        let mut m = Vec::new();
+        m.extend_from_slice(&discriminator::METER);
+        m.extend_from_slice(&[1u8; 32]);
+        m.extend_from_slice(&[2u8; 32]);
+        m.extend_from_slice(&[3u8; 32]);
+        m.extend_from_slice(&(-5i64).to_le_bytes());
+        m.extend_from_slice(&500u64.to_le_bytes());
+        m.extend_from_slice(&40u64.to_le_bytes());
+        m.extend_from_slice(&30u64.to_le_bytes());
+        m.push(250);
+        let meter = Meter::decode(&m).unwrap();
+        assert_eq!(meter.fund, Pubkey::new_from_array([2u8; 32]));
+        assert_eq!(meter.key, Pubkey::new_from_array([3u8; 32]));
+        assert_eq!(meter.expiry, -5);
+        assert_eq!((meter.limit, meter.used, meter.paid, meter.bump), (500, 40, 30, 250));
+
+        let mut f = Vec::new();
+        f.extend_from_slice(&discriminator::FUND);
+        f.extend_from_slice(&[4u8; 32]);
+        f.extend_from_slice(&[5u8; 32]);
+        f.push(7);
+        f.extend_from_slice(&3u32.to_le_bytes());
+        f.push(249);
+        let fund = Fund::decode(&f).unwrap();
+        assert_eq!(fund.reader, Pubkey::new_from_array([4u8; 32]));
+        assert_eq!(fund.mint, Pubkey::new_from_array([5u8; 32]));
+        assert_eq!((fund.index, fund.meters, fund.bump), (7, 3, 249));
+
+        // Same discriminator discipline as Site: a fund is not a meter.
+        assert!(Meter::decode(&f).is_err());
+        assert!(Fund::decode(&m).is_err());
     }
 
     #[test]

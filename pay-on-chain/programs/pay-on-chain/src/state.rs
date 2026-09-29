@@ -9,18 +9,34 @@ pub struct Site {
     pub authority: Pubkey,
     /// Mint that items are priced and settled in (USDC in practice).
     pub mint: Pubkey,
-    /// Token account that collected funds land in.
+    /// Token account that collected money lands in.
     pub treasury: Pubkey,
     /// Cost of a single item, in mint base units.
     pub item_price: u64,
     /// Minimum unpaid balance worth the cost of a transfer.
     pub collection_threshold: u64,
-    /// Smallest limit a reader may authorize. Must exceed the threshold.
+    /// Smallest limit a reader may set. Must exceed the threshold.
     pub min_limit: u64,
     pub bump: u8,
 }
 
-/// A reader's spending meter with one site.
+/// A reader's money, held by the program in one mint (SPEC §4.7).
+///
+/// The balance is not here: it is the balance of the fund PDA's associated
+/// token account, which any `transfer_checked` can extend. One reader may
+/// hold several funds in one mint, told apart by `index`.
+#[account]
+#[derive(InitSpace)]
+pub struct Fund {
+    pub reader: Pubkey,
+    pub mint: Pubkey,
+    pub index: u8,
+    /// Meters currently open against this fund. `close_fund` needs zero.
+    pub meters: u32,
+    pub bump: u8,
+}
+
+/// A reader's running account with one site, drawn from one fund (SPEC §4.8).
 ///
 /// Invariants maintained by the instructions:
 ///   paid <= used <= limit
@@ -29,8 +45,14 @@ pub struct Site {
 #[derive(InitSpace)]
 pub struct Meter {
     pub site: Pubkey,
-    pub reader: Pubkey,
-    /// Ceiling on `used`, authorized by the reader's delegate approval.
+    pub fund: Pubkey,
+    /// The browser key, per site and per device. It may sign a key proof and
+    /// `close_meter`, nothing else.
+    pub key: Pubkey,
+    /// Unix time after which the meter cannot be metered. Governs the whole
+    /// meter: metering and the key's identity end together.
+    pub expiry: i64,
+    /// Ceiling on `used`, set by the reader.
     pub limit: u64,
     /// Usage accrued, in mint base units.
     pub used: u64,
@@ -45,9 +67,13 @@ impl Meter {
         self.used.saturating_sub(self.paid)
     }
 
-    /// Amount the delegate allowance still has to cover: everything that may
-    /// yet be transferred under the current limit.
+    /// Everything that may yet be transferred under the current limit.
     pub fn outstanding(&self) -> u64 {
         self.limit.saturating_sub(self.paid)
+    }
+
+    /// Past its expiry at `now`. Metering at `now == expiry` is still allowed.
+    pub fn expired(&self, now: i64) -> bool {
+        now > self.expiry
     }
 }

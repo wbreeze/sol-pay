@@ -38,12 +38,12 @@ final class IxTest extends TestCase
     {
         $authority = self::seed('authority-0');
         $site = Pda::siteAddress($authority)['address'];
-        $payer = self::seed('payer-0');
-        $payerAta = self::seed('payer-ata-0');
+        $reader = self::seed('payer-0');
+        $readerAta = self::seed('payer-ata-0');
         $treasury = self::seed('treasury-0');
         $mint = self::seed('mint-0');
 
-        $ix = Ix::meterAndSettle(Program::default(), $site, $authority, $payer, $payerAta, $treasury, $mint, 7);
+        $ix = Ix::meterAndSettle(Program::default(), $site, $authority, $reader, $readerAta, $treasury, $mint, 7);
 
         self::assertSame(Ids::PAY_ON_CHAIN_ID, $ix->programId);
         self::assertSame('8b11008b72e9587907000000', bin2hex($ix->data));
@@ -56,8 +56,8 @@ final class IxTest extends TestCase
         self::assertTrue($ix->accounts[1]->isSigner, 'authority signs');
         self::assertFalse($ix->accounts[1]->isWritable);
         self::assertFalse($ix->accounts[2]->isSigner);
-        self::assertTrue($ix->accounts[3]->isWritable, 'contract is written');
-        self::assertTrue($ix->accounts[4]->isWritable, 'payer token account is written');
+        self::assertTrue($ix->accounts[3]->isWritable, 'meter is written');
+        self::assertTrue($ix->accounts[4]->isWritable, 'reader token account is written');
         self::assertTrue($ix->accounts[5]->isWritable, 'treasury is written');
         self::assertFalse($ix->accounts[6]->isWritable);
         self::assertSame(Ids::TOKEN_PROGRAM_ID, $ix->accounts[7]->pubkey);

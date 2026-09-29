@@ -52,18 +52,18 @@ const v = JSON.parse(await readFile(vectorsPath, 'utf8'));
 const pay = new wasm.PayOnChain(v.program_id);
 
 // Same inputs the generator used: sha256("authority-<i>") / sha256("payer-<i>").
-let sites = 0, contracts = 0;
+let sites = 0, meters = 0;
 for (let i = 0; i < v.count; i++) {
   const site = pay.deriveSiteAddress(base58(sha256(`authority-${i}`)));
   if (site === v.site[i].address) sites++;
-  if (pay.deriveContractAddress(site, base58(sha256(`payer-${i}`))) === v.contract[i].address) contracts++;
+  if (pay.deriveMeterAddress(site, base58(sha256(`payer-${i}`))) === v.meter[i].address) meters++;
 }
 check('site PDAs', sites === v.count, `${sites}/${v.count}`);
-check('contract PDAs', contracts === v.count, `${contracts}/${v.count}`);
+check('meter PDAs', meters === v.count, `${meters}/${v.count}`);
 
 const ms = v.meter_and_settle;
 const want = ms.accounts.map((a) => a.pubkey);
-const ix = pay.meterAndSettle(want[0], want[1], want[2], want[4], want[5], want[6], ms.page_views);
+const ix = pay.meterAndSettle(want[0], want[1], want[2], want[4], want[5], want[6], ms.items);
 const data = hex(ix.data ?? new Uint8Array());
 check('meter_and_settle data', data === ms.data_hex, data);
 const got = (ix.accounts ?? []).map((a) => a.address ?? a.pubkey);
@@ -75,7 +75,7 @@ check(
   'decodeSite',
   site.authority === expected.authority &&
     site.mint === expected.mint &&
-    String(site.pagePrice ?? site.page_price) === String(expected.page_price),
+    String(site.itemPrice ?? site.item_price) === String(expected.item_price),
 );
 
 if (fail.length) {

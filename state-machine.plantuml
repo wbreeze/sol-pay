@@ -3,51 +3,51 @@ state program #pink
 program : on chain account program
 
 state wallet #yellow
-wallet : payer wallet interaction
+wallet : reader wallet interaction
 
 state screen #cyan
 screen : visible or interactive content
 
 state identified <<choice>>
 state set_meter #cyan
-state find_contract
+state find_meter
 state authorize #yellow
-state open_contract #pink
+state open_meter #pink
 state metered_page #cyan
 state meter_and_settle #pink
 state check_limit <<choice>>
 state manage_meter #cyan
-state renew_contract #pink
-state close_contract #pink
+state renew_meter #pink
+state close_meter #pink
 
 [*] -[bold]-> identified : navigate
 identified --> set_meter : viewer not identified
-identified -[bold]-> find_contract : viewer's wallet address known
+identified -[bold]-> find_meter : viewer's wallet address known
 
-find_contract : derive the contract address from site and wallet address
-find_contract : read the account
-find_contract -> set_meter : no contract
-find_contract -[bold]-> check_limit : contract found
+find_meter : derive the meter address from site and wallet address
+find_meter : fetch the account
+find_meter -> set_meter : no meter
+find_meter -[bold]-> check_limit : meter found
 
 set_meter : inform cost per fetch
 set_meter : prompt limit amount
 set_meter : enforce minimum on limit amount
 set_meter --> authorize : set the meter
 
-authorize : payer wallet authorizes spending up to the limit
+authorize : reader wallet authorizes spending up to the limit
 authorize : reused for the first setting and for every renewal
 authorize -> set_meter : wallet cancelled (first setting)
-authorize --> open_contract : wallet signed (first setting)
+authorize --> open_meter : wallet signed (first setting)
 authorize -> manage_meter : wallet cancelled (renewal)
 authorize -[bold]-> [*] : wallet signed (renewal), navigate
 
-open_contract : create the contract for this site and payer
-open_contract --> check_limit
+open_meter : create the meter for this site and reader
+open_meter --> check_limit
 
 metered_page : display metered content as navigated
 metered_page -[bold]-> [*] : navigate
 
-meter_and_settle : bump used amount on account by page increment
+meter_and_settle : bump used amount on account by item increment
 meter_and_settle : if unpaid balance crosses collection threshold,
 meter_and_settle : transfer the entire unpaid balance in same instruction
 meter_and_settle : increment and transfer succeed or fail together (atomic)
@@ -57,30 +57,30 @@ meter_and_settle --> manage_meter : instruction failed (insufficient funds)
 check_limit -> manage_meter : limit reached
 check_limit -[bold]-> meter_and_settle : meter below limit
 
-manage_meter: show current limit, cost per page
+manage_meter: show current limit, cost per item
 manage_meter: show used and paid amount
-manage_meter: to change wallets, close the contract and set a meter with the new wallet
+manage_meter: to change wallets, close the meter and set a new one with the new wallet
 manage_meter: prompt new limit for renewal
 manage_meter: enforce minimum on limit amount
 manage_meter -> [*] : navigate
-manage_meter --> renew_contract : renew
-manage_meter --> close_contract : delete
+manage_meter --> renew_meter : renew
+manage_meter --> close_meter : delete
 
-renew_contract: enforce minimum on limit amount
-renew_contract: reduce used amount by paid amount
-renew_contract: zero paid amount
-renew_contract: set new limit amount
-renew_contract --> authorize : re-authorize new limit
+renew_meter: enforce minimum on limit amount
+renew_meter: reduce used amount by paid amount
+renew_meter: zero paid amount
+renew_meter: set new limit amount
+renew_meter --> authorize : re-authorize new limit
 
-close_contract : meter_and_settle takes the entire unpaid balance,
-close_contract : so residue is always below the collection threshold
-close_contract : leave the residue uncollected (take the loss)
-close_contract --> [*] : navigate
+close_meter : meter_and_settle takes the entire unpaid balance,
+close_meter : so residue is always below the collection threshold
+close_meter : leave the residue uncollected (take the loss)
+close_meter --> [*] : navigate
 
 legend left
 Colour says what kind of step it is, not who runs it.
 The pink (on chain) steps divide by signer:
-  payer signs .......... open_contract, renew_contract, close_contract
+  reader signs .......... open_meter, renew_meter, close_meter
   site authority signs . meter_and_settle
 Identifying the viewer is the integrator's own business. This diagram assumes
 only that the site can map the viewer to a wallet address; see

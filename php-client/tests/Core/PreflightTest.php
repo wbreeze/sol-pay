@@ -7,30 +7,30 @@ namespace SolPay\Tests\Core;
 use PHPUnit\Framework\TestCase;
 use SolPay\Core\Base58;
 use SolPay\Core\BlockedKind;
-use SolPay\Core\Contract;
+use SolPay\Core\Meter;
 use SolPay\Core\Preflight;
 use SolPay\Core\Site;
 
 final class PreflightTest extends TestCase
 {
-    private static function site(int $pagePrice, int $threshold, int $minLimit): Site
+    private static function site(int $itemPrice, int $threshold, int $minLimit): Site
     {
         return new Site(
             authority: Base58::encode(str_repeat("\x01", 32)),
             mint: Base58::encode(str_repeat("\x02", 32)),
             treasury: Base58::encode(str_repeat("\x03", 32)),
-            pagePrice: $pagePrice,
+            itemPrice: $itemPrice,
             collectionThreshold: $threshold,
             minLimit: $minLimit,
             bump: 255,
         );
     }
 
-    private static function contract(int $limit, int $used, int $paid): Contract
+    private static function meter(int $limit, int $used, int $paid): Meter
     {
-        return new Contract(
+        return new Meter(
             site: Base58::encode(str_repeat("\x01", 32)),
-            payer: Base58::encode(str_repeat("\x02", 32)),
+            reader: Base58::encode(str_repeat("\x02", 32)),
             limit: $limit,
             used: $used,
             paid: $paid,
@@ -42,11 +42,11 @@ final class PreflightTest extends TestCase
     {
         $s = self::site(10, 100, 500);
 
-        $c = self::contract(1_000, 990, 0);
+        $c = self::meter(1_000, 990, 0);
         self::assertNull(Preflight::canMeter($c, $s, 1));
 
         // 990 + 10 = 1000, exactly the limit, still allowed.
-        $c = self::contract(1_000, 1_000, 0);
+        $c = self::meter(1_000, 1_000, 0);
         $blocked = Preflight::canMeter($c, $s, 1);
         self::assertSame(BlockedKind::LimitReached, $blocked->kind);
         self::assertSame(10, $blocked->over);
@@ -55,7 +55,7 @@ final class PreflightTest extends TestCase
     public function testCanMeterReportsHowFarOver(): void
     {
         $s = self::site(10, 100, 500);
-        $c = self::contract(1_000, 950, 0);
+        $c = self::meter(1_000, 950, 0);
 
         $blocked = Preflight::canMeter($c, $s, 10);
         self::assertSame(BlockedKind::LimitReached, $blocked->kind);
@@ -68,7 +68,7 @@ final class PreflightTest extends TestCase
         // (~1.8e19) -- see Preflight's class doc -- so these values differ
         // from wasm-client's equivalent test but exercise the same path.
         $s = self::site(intdiv(PHP_INT_MAX, 2), 100, 500);
-        $c = self::contract(PHP_INT_MAX, 0, 0);
+        $c = self::meter(PHP_INT_MAX, 0, 0);
 
         $blocked = Preflight::canMeter($c, $s, 3);
         self::assertSame(BlockedKind::Overflow, $blocked->kind);
@@ -80,30 +80,30 @@ final class PreflightTest extends TestCase
     {
         $s = self::site(10, 100, 500);
 
-        self::assertFalse(Preflight::willSettle(self::contract(1_000, 80, 0), $s, 1)); // 90 unpaid
-        self::assertTrue(Preflight::willSettle(self::contract(1_000, 90, 0), $s, 1));  // 100 unpaid
+        self::assertFalse(Preflight::willSettle(self::meter(1_000, 80, 0), $s, 1)); // 90 unpaid
+        self::assertTrue(Preflight::willSettle(self::meter(1_000, 90, 0), $s, 1));  // 100 unpaid
 
         // Usage already paid for does not count toward the next settle. 150
         // used is past the threshold on its own, but only 60 of it is
         // unpaid, so a check that looked at `used` alone would settle wrongly.
-        self::assertFalse(Preflight::willSettle(self::contract(1_000, 150, 100), $s, 1));
+        self::assertFalse(Preflight::willSettle(self::meter(1_000, 150, 100), $s, 1));
 
         // The boundary is the unpaid amount reaching the threshold, wherever
         // paid happens to sit.
-        self::assertTrue(Preflight::willSettle(self::contract(1_000, 190, 100), $s, 1));
+        self::assertTrue(Preflight::willSettle(self::meter(1_000, 190, 100), $s, 1));
     }
 
     public function testViewsRemainingFloors(): void
     {
         $s = self::site(30, 100, 500);
 
-        self::assertSame(33, Preflight::viewsRemaining(self::contract(1_000, 0, 0), $s));
-        self::assertSame(0, Preflight::viewsRemaining(self::contract(1_000, 1_000, 0), $s));
-        // Past the limit is not negative views.
-        self::assertSame(0, Preflight::viewsRemaining(self::contract(1_000, 2_000, 0), $s));
+        self::assertSame(33, Preflight::itemsRemaining(self::meter(1_000, 0, 0), $s));
+        self::assertSame(0, Preflight::itemsRemaining(self::meter(1_000, 1_000, 0), $s));
+        // Past the limit is not negative items.
+        self::assertSame(0, Preflight::itemsRemaining(self::meter(1_000, 2_000, 0), $s));
     }
 
-    public function testLimitFloorIsTheSiteMinimumWhenThereIsNoContract(): void
+    public function testLimitFloorIsTheSiteMinimumWhenThereIsNoMeter(): void
     {
         $s = self::site(10, 100, 500);
         self::assertSame(500, Preflight::limitFloor($s, null));
@@ -114,9 +114,9 @@ final class PreflightTest extends TestCase
         $s = self::site(10, 100, 500);
 
         // Nothing carried: the minimum still rules.
-        self::assertSame(500, Preflight::limitFloor($s, self::contract(1_000, 300, 300)));
+        self::assertSame(500, Preflight::limitFloor($s, self::meter(1_000, 300, 300)));
         // 700 unpaid is more than the minimum, so it becomes the floor.
-        self::assertSame(700, Preflight::limitFloor($s, self::contract(1_000, 900, 200)));
+        self::assertSame(700, Preflight::limitFloor($s, self::meter(1_000, 900, 200)));
     }
 
     public function testRequiredAllowanceIsTheWholeLimit(): void

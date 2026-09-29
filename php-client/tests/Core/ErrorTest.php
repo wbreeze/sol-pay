@@ -29,7 +29,7 @@ final class ErrorTest extends TestCase
         $fromVectorsGen = [
             PayError::LimitBelowMinimum->name => 6000,
             PayError::MinimumBelowThreshold->name => 6001,
-            PayError::ZeroPagePrice->name => 6002,
+            PayError::ZeroItemPrice->name => 6002,
             PayError::LimitReached->name => 6003,
             PayError::DelegateNotSet->name => 6004,
             PayError::DelegateMismatch->name => 6005,

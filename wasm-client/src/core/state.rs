@@ -1,6 +1,6 @@
 //! Decoding the program's accounts.
 //!
-//! A site's UI cannot render anything about a contract without these: the
+//! A site's UI cannot render anything about a meter without these: the
 //! limit, the usage and the price all live in account data. Anchor writes an
 //! 8-byte discriminator followed by borsh, and these read that back by hand.
 //!
@@ -23,13 +23,13 @@ use solana_pubkey::Pubkey;
 /// instruction discriminators are; the parity tests recompute them.
 pub mod discriminator {
     pub const SITE: [u8; 8] = [143, 255, 52, 15, 65, 165, 94, 49];
-    pub const CONTRACT: [u8; 8] = [172, 138, 115, 242, 121, 67, 183, 26];
+    pub const METER: [u8; 8] = [5, 115, 227, 240, 63, 166, 206, 182];
 }
 
 /// 8 discriminator + 32 + 32 + 32 + 8 + 8 + 8 + 1
 pub const SITE_LEN: usize = 129;
 /// 8 discriminator + 32 + 32 + 8 + 8 + 8 + 1
-pub const CONTRACT_LEN: usize = 97;
+pub const METER_LEN: usize = 97;
 /// SPL mint accounts are at least this long; Token-2022 adds extensions after.
 pub const MINT_MIN_LEN: usize = 82;
 /// SPL token accounts are at least this long, same caveat.
@@ -63,24 +63,24 @@ pub struct Site {
     pub authority: Pubkey,
     pub mint: Pubkey,
     pub treasury: Pubkey,
-    pub page_price: u64,
+    pub item_price: u64,
     pub collection_threshold: u64,
     pub min_limit: u64,
     pub bump: u8,
 }
 
-/// One payer's spending contract with one site.
+/// One reader's spending meter with one site.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Contract {
+pub struct Meter {
     pub site: Pubkey,
-    pub payer: Pubkey,
+    pub reader: Pubkey,
     pub limit: u64,
     pub used: u64,
     pub paid: u64,
     pub bump: u8,
 }
 
-impl Contract {
+impl Meter {
     /// Usage accrued but not yet transferred. Mirrors the program.
     pub fn unpaid(&self) -> u64 {
         self.used.saturating_sub(self.paid)
@@ -166,7 +166,7 @@ impl Site {
             authority: r.pubkey(),
             mint: r.pubkey(),
             treasury: r.pubkey(),
-            page_price: r.u64(),
+            item_price: r.u64(),
             collection_threshold: r.u64(),
             min_limit: r.u64(),
             bump: r.u8(),
@@ -174,13 +174,13 @@ impl Site {
     }
 }
 
-impl Contract {
+impl Meter {
     pub fn decode(data: &[u8]) -> Result<Self, DecodeError> {
-        check(data, discriminator::CONTRACT, CONTRACT_LEN)?;
+        check(data, discriminator::METER, METER_LEN)?;
         let mut r = Reader::new(data, 8);
-        Ok(Contract {
+        Ok(Meter {
             site: r.pubkey(),
-            payer: r.pubkey(),
+            reader: r.pubkey(),
             limit: r.u64(),
             used: r.u64(),
             paid: r.u64(),
@@ -205,7 +205,7 @@ pub fn mint_decimals(mint_account_data: &[u8]) -> Result<u8, DecodeError> {
 }
 
 
-/// The payer's SPL token account, as much of it as this crate needs.
+/// The reader's SPL token account, as much of it as this crate needs.
 ///
 /// Not an Anchor account, so no discriminator: SPL writes a fixed 165-byte
 /// layout. Token-2022 appends extensions past that, which is why anything at
@@ -273,7 +273,7 @@ mod tests {
         assert_eq!(s.authority, Pubkey::new_from_array([1u8; 32]));
         assert_eq!(s.mint, Pubkey::new_from_array([2u8; 32]));
         assert_eq!(s.treasury, Pubkey::new_from_array([3u8; 32]));
-        assert_eq!(s.page_price, 10_000);
+        assert_eq!(s.item_price, 10_000);
         assert_eq!(s.collection_threshold, 250_000);
         assert_eq!(s.min_limit, 500_000);
         assert_eq!(s.bump, 254);
@@ -300,9 +300,9 @@ mod tests {
 
     #[test]
     fn unpaid_and_outstanding_saturate() {
-        let c = Contract {
+        let c = Meter {
             site: Pubkey::new_from_array([0u8; 32]),
-            payer: Pubkey::new_from_array([0u8; 32]),
+            reader: Pubkey::new_from_array([0u8; 32]),
             limit: 100,
             used: 40,
             paid: 60, // impossible on chain; the helpers must not panic

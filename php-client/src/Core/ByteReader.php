@@ -9,7 +9,7 @@ namespace SolPay\Core;
  * part of the public API. Pubkeys come out base58-encoded -- this package's
  * boundary type throughout -- so callers never see raw address bytes.
  */
-final class Reader
+final class ByteReader
 {
     private int $at;
 

@@ -32,14 +32,14 @@ form.
 ## What is here, and what is deliberately not
 
 `wasm-client/SPEC.md` §3 splits an integration into two consumers: a browser,
-which signs as the payer via a wallet adapter, and a server, which signs as
+which signs as the reader via a wallet adapter, and a server, which signs as
 the site authority. This package covers the server row only:
 
 | `wasm-client/src/core` | `src/Core` |
 | --- | --- |
-| `pda.rs` | `Pda` — `siteAddress`, `contractAddress` |
+| `pda.rs` | `Pda` — `siteAddress`, `meterAddress` |
 | `ix.rs` (server-signed subset) | `Ix` — `initializeSite`, `meterAndSettle` |
-| `state.rs` | `Site`, `Contract`, `TokenAccount`, `Mint`, `Reader` (internal) |
+| `state.rs` | `Site`, `Meter`, `TokenAccount`, `Mint`, `ByteReader` (internal) |
 | `preflight.rs` | `Preflight`, `Blocked` |
 | `error.rs` | `PayError`, `TokenError`, `Cause`, `Shortfall` |
 | `units.rs` | `Units` |
@@ -47,8 +47,8 @@ the site authority. This package covers the server row only:
 | `ids.rs` | `Ids` |
 | *(nothing)* | `Tx` — `compile`, `wire`; see "Transaction assembly" below |
 
-The payer-signed instructions — `open_contract`, `renew_contract`,
-`close_contract`, `approve_checked`, `revoke` — and `tx.rs`'s ordered pairing
+The reader-signed instructions — `open_meter`, `renew_meter`,
+`close_meter`, `approve_checked`, `revoke` — and `tx.rs`'s ordered pairing
 of them are absent on purpose. Wallet Standard is browser JavaScript, so
 those are signed in the browser regardless of what language the server runs;
 a PHP port gains nothing by having them. Signing, RPC, and storage are out of
@@ -63,7 +63,7 @@ its boundary as base58 strings, never as a `Pubkey` object"). There is no
 address bytes exist, and only internally.
 
 PHP has no unsigned 64-bit integer. This package's safe integer ceiling is
-`PHP_INT_MAX` (~9.2e18), not `u64::MAX` (~1.8e19) — `Reader::u64()`,
+`PHP_INT_MAX` (~9.2e18), not `u64::MAX` (~1.8e19) — `ByteReader::u64()`,
 `Preflight`, and `Units` each document this where it matters. Ordinary token
 amounts, prices, and limits never come close to either ceiling; the
 difference only matters at the extreme.
@@ -104,8 +104,8 @@ program rather than transcribed by hand —
 
 - PDA derivation and one `meter_and_settle` instruction, from the published
   `sol-pay-client` crate on crates.io.
-- A genuine Anchor-serialized `Site` and `Contract` account, built from
-  `pay-on-chain::state::{Site,Contract}`'s own `#[account]`-derived
+- A genuine Anchor-serialized `Site` and `Meter` account, built from
+  `pay-on-chain::state::{Site,Meter}`'s own `#[account]`-derived
   `DISCRIMINATOR` and `AnchorSerialize`.
 - The `PayError` code table, computed as `PayError::<variant> as u32 +
   anchor_lang::error::ERROR_CODE_OFFSET` against `pay-on-chain`'s own enum.
@@ -134,7 +134,7 @@ you which of your own edits broke something.
 `conformance/vectors.php` is what `bin/test-php` runs, and it checks **this
 package** rather than the spike: both PDA families with their bumps, the
 `meter_and_settle` data and every account's pubkey and flags, `Site::decode`,
-`Contract::decode`, and both error tables. The `php conformance` workflow
+`Meter::decode`, and both error tables. The `php conformance` workflow
 runs it on every push that touches this directory or the program, on PHP 8.1
 and 8.5. `pda-spike/php/verify.php` still exists and still works, but it
 checks the spike's standalone `Pda`/`Base58` — not what ships.
@@ -162,7 +162,7 @@ drives the same live SVM the other tests drive and writes
 at each interesting instant, the predicate's verdict there, and what the
 program then actually did. `conformance/preflight.php` replays it. The
 boundary it crosses is one both sides already agree on — `Site::decode`,
-`Contract::decode` and `TokenAccount::decode` are themselves checked
+`Meter::decode` and `TokenAccount::decode` are themselves checked
 byte-for-byte on every conformance run — so there is no new schema to keep in
 step.
 
@@ -182,10 +182,10 @@ a choice:
   reviewable diff. The two files answer different questions and should not be
   merged.
 - **Coverage is what the recorded cases touch, and no more.** Pinned:
-  `charge`, `canMeter` (including `over`), `willSettle`, `viewsRemaining`,
+  `charge`, `canMeter` (including `over`), `willSettle`, `itemsRemaining`,
   `limitFloor`, and `Shortfall::diagnose`'s three fields. Not pinned:
   `requiredAllowance`, which is the identity function, and `Blocked::Overflow`,
-  which no realistic page count reaches — and which would not mean the same
+  which no realistic item count reaches — and which would not mean the same
   thing on both sides anyway, since this package overflows at `PHP_INT_MAX`
   and the program at `u64`. Widening it means adding a case to the Rust
   recorder: one place, both ports.
@@ -207,7 +207,7 @@ message to compile: compact-u16 (shortvec) length prefixes, account-key
 deduplication and ordering by signer/writable rank, the three header counts,
 the program-id index, the recent blockhash, and the signature array. This
 package stops at the instruction, and nothing in sol-pay goes further in any
-language — `wasm-client/src/core/tx.rs` pairs payer-signed instructions in
+language — `wasm-client/src/core/tx.rs` pairs reader-signed instructions in
 the order the program requires, which is ordering constraints and not wire
 format. SPEC §7 records the same finding from the specification's side: "the
 integrator owns the connection" cost nothing for Rust or Node, and the

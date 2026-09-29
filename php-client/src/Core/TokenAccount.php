@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace SolPay\Core;
 
 /**
- * The payer's SPL token account, as much of it as this package needs. Not
+ * The reader's SPL token account, as much of it as this package needs. Not
  * an Anchor account, so no discriminator: SPL writes a fixed 165-byte
  * layout, and Token-2022 appends extensions past that, which is why
  * anything at least that long decodes.
@@ -34,7 +34,7 @@ final class TokenAccount
             throw DecodeException::wrongLength(self::LEN, strlen($data));
         }
 
-        $r = new Reader($data, 0);
+        $r = new ByteReader($data, 0);
         $mint = $r->pubkey();
         $owner = $r->pubkey();
         $amount = $r->u64();

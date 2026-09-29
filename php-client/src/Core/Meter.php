@@ -4,17 +4,17 @@ declare(strict_types=1);
 
 namespace SolPay\Core;
 
-/** One payer's spending contract with one site. See {@see Site} for the decoding discipline. */
-final class Contract
+/** One reader's spending meter with one site. See {@see Site} for the decoding discipline. */
+final class Meter
 {
-    private const DISCRIMINATOR = "\xac\x8a\x73\xf2\x79\x43\xb7\x1a";
+    private const DISCRIMINATOR = "\x05\x73\xe3\xf0\x3f\xa6\xce\xb6";
 
     /** 8 discriminator + 32 + 32 + 8 + 8 + 8 + 1 */
     private const LEN = 97;
 
     public function __construct(
         public readonly string $site,
-        public readonly string $payer,
+        public readonly string $reader,
         public readonly int $limit,
         public readonly int $used,
         public readonly int $paid,
@@ -31,10 +31,10 @@ final class Contract
             throw DecodeException::wrongDiscriminator();
         }
 
-        $r = new Reader($data, 8);
+        $r = new ByteReader($data, 8);
         return new self(
             site: $r->pubkey(),
-            payer: $r->pubkey(),
+            reader: $r->pubkey(),
             limit: $r->u64(),
             used: $r->u64(),
             paid: $r->u64(),

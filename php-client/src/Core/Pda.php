@@ -6,7 +6,7 @@ namespace SolPay\Core;
 
 /**
  * PDA derivation. `findProgramAddress` is Solana's own algorithm, working on
- * raw 32-byte strings; `siteAddress` and `contractAddress` are the named
+ * raw 32-byte strings; `siteAddress` and `meterAddress` are the named
  * wrappers a server actually calls, taking and returning base58 addresses --
  * this package's boundary type throughout. Seeds mirror
  * pay-on-chain/programs/pay-on-chain/src/constants.rs and
@@ -21,7 +21,7 @@ final class Pda
 {
     private const MARKER = 'ProgramDerivedAddress';
     private const SITE_SEED = 'site';
-    private const CONTRACT_SEED = 'contract';
+    private const METER_SEED = 'meter';
 
     /**
      * Solana's find_program_address: walk the bump seed downward from 255
@@ -52,11 +52,11 @@ final class Pda
     }
 
     /** @return array{address: string, bump: int} */
-    public static function contractAddress(string $site, string $payer, ?string $programId = null): array
+    public static function meterAddress(string $site, string $reader, ?string $programId = null): array
     {
         $programId ??= Ids::PAY_ON_CHAIN_ID;
         [$addr, $bump] = self::findProgramAddress(
-            [self::CONTRACT_SEED, Base58::decode($site), Base58::decode($payer)],
+            [self::METER_SEED, Base58::decode($site), Base58::decode($reader)],
             Base58::decode($programId),
         );
         return ['address' => Base58::encode($addr), 'bump' => $bump];

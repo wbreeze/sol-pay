@@ -6,7 +6,7 @@ namespace SolPay\Tests\Core;
 
 use PHPUnit\Framework\TestCase;
 use SolPay\Core\Base58;
-use SolPay\Core\Contract;
+use SolPay\Core\Meter;
 use SolPay\Core\DecodeErrorKind;
 use SolPay\Core\DecodeException;
 use SolPay\Core\Mint;
@@ -38,25 +38,25 @@ final class StateTest extends TestCase
         self::assertSame('3zvXTk3LUvcsusVi7pMtovKCxGtxGCjeEmGso3x91M5K', $s->authority);
         self::assertSame('CRKz4eYnALe6h4LDZwm5ZiD7cAchCb5NHQTUm9cNSaDu', $s->mint);
         self::assertSame('9Z2L3mYsKKyoH8d7o9STDSVLhvTgXsDoSfLnWSWFrksZ', $s->treasury);
-        self::assertSame(10_000, $s->pagePrice);
+        self::assertSame(10_000, $s->itemPrice);
         self::assertSame(250_000, $s->collectionThreshold);
         self::assertSame(500_000, $s->minLimit);
         self::assertSame(254, $s->bump);
     }
 
-    /** Same discipline as {@see testSiteDecodesARealAnchorSerializedAccount}, for Contract. */
-    public function testContractDecodesARealAnchorSerializedAccount(): void
+    /** Same discipline as {@see testSiteDecodesARealAnchorSerializedAccount}, for Meter. */
+    public function testMeterDecodesARealAnchorSerializedAccount(): void
     {
         $bytes = hex2bin(
-            'ac8a73f27943b71af2d6713221830bf6ab79743159da843f4ea258b322eabfa5ecf92d2c8a6601f05e25'
+            '0573e3f03fa6ceb6f2d6713221830bf6ab79743159da843f4ea258b322eabfa5ecf92d2c8a6601f05e25'
             .'d28c5bb4ab2ef2d79b02c49f3b45ded37d11b834103065630924b770a07640420f000000000090d00300'
             .'00000000a086010000000000fd',
         );
 
-        $c = Contract::decode($bytes);
+        $c = Meter::decode($bytes);
 
         self::assertSame('HLwKN3khwF5WdLfbN2XsbQz8tYET3iH1eQ3HbRagG2BZ', $c->site);
-        self::assertSame('7LWmtbqp9ZAiHDs2R5GVikZVRr5Zi41iqzMHodThMPa5', $c->payer);
+        self::assertSame('7LWmtbqp9ZAiHDs2R5GVikZVRr5Zi41iqzMHodThMPa5', $c->reader);
         self::assertSame(1_000_000, $c->limit);
         self::assertSame(250_000, $c->used);
         self::assertSame(100_000, $c->paid);
@@ -82,7 +82,7 @@ final class StateTest extends TestCase
         self::assertSame(Base58::encode(str_repeat("\x01", 32)), $s->authority);
         self::assertSame(Base58::encode(str_repeat("\x02", 32)), $s->mint);
         self::assertSame(Base58::encode(str_repeat("\x03", 32)), $s->treasury);
-        self::assertSame(10_000, $s->pagePrice);
+        self::assertSame(10_000, $s->itemPrice);
         self::assertSame(250_000, $s->collectionThreshold);
         self::assertSame(500_000, $s->minLimit);
         self::assertSame(254, $s->bump);
@@ -117,9 +117,9 @@ final class StateTest extends TestCase
 
     public function testUnpaidAndOutstandingSaturate(): void
     {
-        $c = new Contract(
+        $c = new Meter(
             site: Base58::encode(str_repeat("\x00", 32)),
-            payer: Base58::encode(str_repeat("\x00", 32)),
+            reader: Base58::encode(str_repeat("\x00", 32)),
             limit: 100,
             used: 40,
             paid: 60, // impossible on chain; the helpers must not go negative

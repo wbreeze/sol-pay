@@ -79,13 +79,13 @@ whose prose is thin on exactly these points:
   checked against it.
 
 **If the second is right there is an interop collision, and it is the reasoning
-of README's "Can a payer be metered by more than one site at once?" arriving
-from a new direction.** One token account has one delegate. A payer who has
+of README's "Can a reader be metered by more than one site at once?" arriving
+from a new direction.** One token account has one delegate. A reader who has
 approved that Subscription Authority on a token account cannot also have a
-sol-pay contract PDA delegated on it. The remedy is the one already documented
+sol-pay meter PDA delegated on it. The remedy is the one already documented
 -- a second token account -- but the question changes from coexisting with a
 second sol-pay site to coexisting with Solana's own primitive, which more
-payers will meet first. This is reasoning from a documented constraint, not a
+readers will meet first. This is reasoning from a documented constraint, not a
 tested result.
 
 *Unverified:* a mainnet date of 2026-06-02 and an attribution to Moonsong Labs

@@ -27,7 +27,7 @@ final class Site
         public readonly string $authority,
         public readonly string $mint,
         public readonly string $treasury,
-        public readonly int $pagePrice,
+        public readonly int $itemPrice,
         public readonly int $collectionThreshold,
         public readonly int $minLimit,
         public readonly int $bump,
@@ -43,12 +43,12 @@ final class Site
             throw DecodeException::wrongDiscriminator();
         }
 
-        $r = new Reader($data, 8);
+        $r = new ByteReader($data, 8);
         return new self(
             authority: $r->pubkey(),
             mint: $r->pubkey(),
             treasury: $r->pubkey(),
-            pagePrice: $r->u64(),
+            itemPrice: $r->u64(),
             collectionThreshold: $r->u64(),
             minLimit: $r->u64(),
             bump: $r->u8(),

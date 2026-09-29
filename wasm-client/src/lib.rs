@@ -68,7 +68,7 @@ mod bindings {
         authority: String,
         mint: String,
         treasury: String,
-        page_price: u64,
+        item_price: u64,
         collection_threshold: u64,
         min_limit: u64,
         bump: u8,
@@ -76,9 +76,9 @@ mod bindings {
 
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
-    struct JsContract {
+    struct JsMeter {
         site: String,
-        payer: String,
+        reader: String,
         limit: u64,
         used: u64,
         paid: u64,
@@ -151,7 +151,7 @@ mod bindings {
                 authority: s.authority.to_string(),
                 mint: s.mint.to_string(),
                 treasury: s.treasury.to_string(),
-                page_price: s.page_price,
+                item_price: s.item_price,
                 collection_threshold: s.collection_threshold,
                 min_limit: s.min_limit,
                 bump: s.bump,
@@ -159,11 +159,11 @@ mod bindings {
         }
     }
 
-    impl From<state::Contract> for JsContract {
-        fn from(c: state::Contract) -> Self {
-            JsContract {
+    impl From<state::Meter> for JsMeter {
+        fn from(c: state::Meter) -> Self {
+            JsMeter {
                 site: c.site.to_string(),
-                payer: c.payer.to_string(),
+                reader: c.reader.to_string(),
                 limit: c.limit,
                 used: c.used,
                 paid: c.paid,
@@ -212,8 +212,8 @@ mod bindings {
         state::Site::decode(data).map_err(|e| JsError::new(&e.to_string()))
     }
 
-    fn contract_of(data: &[u8]) -> Result<state::Contract, JsError> {
-        state::Contract::decode(data).map_err(|e| JsError::new(&e.to_string()))
+    fn meter_of(data: &[u8]) -> Result<state::Meter, JsError> {
+        state::Meter::decode(data).map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// The SPL Token program. A `PayOnChain` uses this unless told otherwise.
@@ -241,11 +241,11 @@ mod bindings {
             .map_err(|e| JsError::new(&e.to_string()))
     }
 
-    /// Decode a `Contract` account fetched with `getAccountInfo`.
-    #[wasm_bindgen(js_name = decodeContract)]
-    pub fn decode_contract(data: &[u8]) -> Result<JsValue, JsError> {
-        let contract = state::Contract::decode(data).map_err(|e| JsError::new(&e.to_string()))?;
-        serde_wasm_bindgen::to_value(&JsContract::from(contract))
+    /// Decode a `Meter` account fetched with `getAccountInfo`.
+    #[wasm_bindgen(js_name = decodeMeter)]
+    pub fn decode_meter(data: &[u8]) -> Result<JsValue, JsError> {
+        let meter = state::Meter::decode(data).map_err(|e| JsError::new(&e.to_string()))?;
+        serde_wasm_bindgen::to_value(&JsMeter::from(meter))
             .map_err(|e| JsError::new(&e.to_string()))
     }
 
@@ -276,10 +276,10 @@ mod bindings {
     // it depends on the deployment: it is arithmetic over accounts already
     // fetched and decoded.
 
-    /// What `pageViews` costs, or an error if it does not fit in u64.
+    /// What `items` costs, or an error if it does not fit in u64.
     #[wasm_bindgen(js_name = charge)]
-    pub fn charge(site_data: &[u8], page_views: u32) -> Result<u64, JsError> {
-        preflight::charge(&site_of(site_data)?, page_views)
+    pub fn charge(site_data: &[u8], items: u32) -> Result<u64, JsError> {
+        preflight::charge(&site_of(site_data)?, items)
             .ok_or_else(|| JsError::new("charge does not fit in u64"))
     }
 
@@ -287,12 +287,12 @@ mod bindings {
     #[wasm_bindgen(js_name = canMeter)]
     pub fn can_meter(
         site_data: &[u8],
-        contract_data: &[u8],
-        page_views: u32,
+        meter_data: &[u8],
+        items: u32,
     ) -> Result<JsValue, JsError> {
         let site = site_of(site_data)?;
-        let contract = contract_of(contract_data)?;
-        match preflight::can_meter(&contract, &site, page_views) {
+        let meter = meter_of(meter_data)?;
+        match preflight::can_meter(&meter, &site, items) {
             Ok(()) => Ok(JsValue::NULL),
             Err(preflight::Blocked::LimitReached { over }) => js(&JsBlocked {
                 reason: "limitReached",
@@ -309,40 +309,40 @@ mod bindings {
     #[wasm_bindgen(js_name = willSettle)]
     pub fn will_settle(
         site_data: &[u8],
-        contract_data: &[u8],
-        page_views: u32,
+        meter_data: &[u8],
+        items: u32,
     ) -> Result<bool, JsError> {
         Ok(preflight::will_settle(
-            &contract_of(contract_data)?,
+            &meter_of(meter_data)?,
             &site_of(site_data)?,
-            page_views,
+            items,
         ))
     }
 
-    /// How many more views fit under the limit.
-    #[wasm_bindgen(js_name = viewsRemaining)]
-    pub fn views_remaining(site_data: &[u8], contract_data: &[u8]) -> Result<u64, JsError> {
-        Ok(preflight::views_remaining(
-            &contract_of(contract_data)?,
+    /// How many more items fit under the limit.
+    #[wasm_bindgen(js_name = itemsRemaining)]
+    pub fn items_remaining(site_data: &[u8], meter_data: &[u8]) -> Result<u64, JsError> {
+        Ok(preflight::items_remaining(
+            &meter_of(meter_data)?,
             &site_of(site_data)?,
         ))
     }
 
-    /// The smallest limit this payer may authorize. Pass the contract data
+    /// The smallest limit this reader may authorize. Pass the meter data
     /// when renewing, and nothing when opening.
     #[wasm_bindgen(js_name = limitFloor)]
-    pub fn limit_floor(site_data: &[u8], contract_data: Option<Vec<u8>>) -> Result<u64, JsError> {
+    pub fn limit_floor(site_data: &[u8], meter_data: Option<Vec<u8>>) -> Result<u64, JsError> {
         let site = site_of(site_data)?;
-        let contract = match contract_data {
-            Some(d) => Some(contract_of(&d)?),
+        let meter = match meter_data {
+            Some(d) => Some(meter_of(&d)?),
             None => None,
         };
-        Ok(preflight::limit_floor(&site, contract.as_ref()))
+        Ok(preflight::limit_floor(&site, meter.as_ref()))
     }
 
     // --- failures ---------------------------------------------------------
 
-    /// Which constraint on the payer's token account is short, and by how
+    /// Which constraint on the reader's token account is short, and by how
     /// much. SPL reports a short balance and a short allowance identically,
     /// so this reads the account rather than guessing from the code.
     ///
@@ -439,11 +439,11 @@ mod bindings {
             Ok(self.inner.site_address(&authority).0.to_string())
         }
 
-        #[wasm_bindgen(js_name = deriveContractAddress)]
-        pub fn derive_contract_address(&self, site: &str, payer: &str) -> Result<String, JsError> {
+        #[wasm_bindgen(js_name = deriveMeterAddress)]
+        pub fn derive_meter_address(&self, site: &str, reader: &str) -> Result<String, JsError> {
             let site = key(site, "site")?;
-            let payer = key(payer, "payer")?;
-            Ok(self.inner.contract_address(&site, &payer).0.to_string())
+            let reader = key(reader, "reader")?;
+            Ok(self.inner.meter_address(&site, &reader).0.to_string())
         }
 
         // --- failures -----------------------------------------------------
@@ -468,17 +468,17 @@ mod bindings {
         #[wasm_bindgen(js_name = approveAndOpen)]
         pub fn approve_and_open(
             &self,
-            payer_token_account: &str,
+            reader_token_account: &str,
             mint: &str,
-            payer: &str,
+            reader: &str,
             site: &str,
             limit: u64,
             decimals: u8,
         ) -> Result<JsValue, JsError> {
             out_many(self.inner.approve_and_open(
-                &key(payer_token_account, "payerTokenAccount")?,
+                &key(reader_token_account, "readerTokenAccount")?,
                 &key(mint, "mint")?,
-                &key(payer, "payer")?,
+                &key(reader, "reader")?,
                 &key(site, "site")?,
                 limit,
                 decimals,
@@ -488,17 +488,17 @@ mod bindings {
         #[wasm_bindgen(js_name = approveAndRenew)]
         pub fn approve_and_renew(
             &self,
-            payer_token_account: &str,
+            reader_token_account: &str,
             mint: &str,
-            payer: &str,
+            reader: &str,
             site: &str,
             new_limit: u64,
             decimals: u8,
         ) -> Result<JsValue, JsError> {
             out_many(self.inner.approve_and_renew(
-                &key(payer_token_account, "payerTokenAccount")?,
+                &key(reader_token_account, "readerTokenAccount")?,
                 &key(mint, "mint")?,
-                &key(payer, "payer")?,
+                &key(reader, "reader")?,
                 &key(site, "site")?,
                 new_limit,
                 decimals,
@@ -508,13 +508,13 @@ mod bindings {
         #[wasm_bindgen(js_name = closeAndRevoke)]
         pub fn close_and_revoke(
             &self,
-            payer_token_account: &str,
-            payer: &str,
+            reader_token_account: &str,
+            reader: &str,
             site: &str,
         ) -> Result<JsValue, JsError> {
             out_many(self.inner.close_and_revoke(
-                &key(payer_token_account, "payerTokenAccount")?,
-                &key(payer, "payer")?,
+                &key(reader_token_account, "readerTokenAccount")?,
+                &key(reader, "reader")?,
                 &key(site, "site")?,
             ))
         }
@@ -527,7 +527,7 @@ mod bindings {
             authority: &str,
             mint: &str,
             treasury: &str,
-            page_price: u64,
+            item_price: u64,
             collection_threshold: u64,
             min_limit: u64,
         ) -> Result<JsValue, JsError> {
@@ -535,60 +535,60 @@ mod bindings {
                 &key(authority, "authority")?,
                 &key(mint, "mint")?,
                 &key(treasury, "treasury")?,
-                page_price,
+                item_price,
                 collection_threshold,
                 min_limit,
             ))
         }
 
-        /// Authorize the contract PDA to pull up to `amount`. Put this
-        /// *before* `openContract` or `renewContract` in the same
+        /// Authorize the meter PDA to pull up to `amount`. Put this
+        /// *before* `openMeter` or `renewMeter` in the same
         /// transaction.
         #[wasm_bindgen(js_name = approveChecked)]
         pub fn approve_checked(
             &self,
-            payer_token_account: &str,
+            reader_token_account: &str,
             mint: &str,
-            payer: &str,
+            reader: &str,
             site: &str,
             amount: u64,
             decimals: u8,
         ) -> Result<JsValue, JsError> {
             out(self.inner.approve_checked(
-                &key(payer_token_account, "payerTokenAccount")?,
+                &key(reader_token_account, "readerTokenAccount")?,
                 &key(mint, "mint")?,
-                &key(payer, "payer")?,
+                &key(reader, "reader")?,
                 &key(site, "site")?,
                 amount,
                 decimals,
             ))
         }
 
-        /// Withdraw the authorization. Worth pairing with `closeContract`.
+        /// Withdraw the authorization. Worth pairing with `closeMeter`.
         #[wasm_bindgen(js_name = revoke)]
         pub fn revoke(
             &self,
-            payer_token_account: &str,
-            payer: &str,
+            reader_token_account: &str,
+            reader: &str,
         ) -> Result<JsValue, JsError> {
             out(self.inner.revoke(
-                &key(payer_token_account, "payerTokenAccount")?,
-                &key(payer, "payer")?,
+                &key(reader_token_account, "readerTokenAccount")?,
+                &key(reader, "reader")?,
             ))
         }
 
-        #[wasm_bindgen(js_name = openContract)]
-        pub fn open_contract(
+        #[wasm_bindgen(js_name = openMeter)]
+        pub fn open_meter(
             &self,
             site: &str,
-            payer: &str,
-            payer_token_account: &str,
+            reader: &str,
+            reader_token_account: &str,
             limit: u64,
         ) -> Result<JsValue, JsError> {
-            out(self.inner.open_contract(
+            out(self.inner.open_meter(
                 &key(site, "site")?,
-                &key(payer, "payer")?,
-                &key(payer_token_account, "payerTokenAccount")?,
+                &key(reader, "reader")?,
+                &key(reader_token_account, "readerTokenAccount")?,
                 limit,
             ))
         }
@@ -599,44 +599,44 @@ mod bindings {
             &self,
             site: &str,
             authority: &str,
-            payer: &str,
-            payer_token_account: &str,
+            reader: &str,
+            reader_token_account: &str,
             treasury: &str,
             mint: &str,
-            page_views: u32,
+            items: u32,
         ) -> Result<JsValue, JsError> {
             out(self.inner.meter_and_settle(
                 &key(site, "site")?,
                 &key(authority, "authority")?,
-                &key(payer, "payer")?,
-                &key(payer_token_account, "payerTokenAccount")?,
+                &key(reader, "reader")?,
+                &key(reader_token_account, "readerTokenAccount")?,
                 &key(treasury, "treasury")?,
                 &key(mint, "mint")?,
-                page_views,
+                items,
             ))
         }
 
-        #[wasm_bindgen(js_name = renewContract)]
-        pub fn renew_contract(
+        #[wasm_bindgen(js_name = renewMeter)]
+        pub fn renew_meter(
             &self,
             site: &str,
-            payer: &str,
-            payer_token_account: &str,
+            reader: &str,
+            reader_token_account: &str,
             new_limit: u64,
         ) -> Result<JsValue, JsError> {
-            out(self.inner.renew_contract(
+            out(self.inner.renew_meter(
                 &key(site, "site")?,
-                &key(payer, "payer")?,
-                &key(payer_token_account, "payerTokenAccount")?,
+                &key(reader, "reader")?,
+                &key(reader_token_account, "readerTokenAccount")?,
                 new_limit,
             ))
         }
 
-        #[wasm_bindgen(js_name = closeContract)]
-        pub fn close_contract(&self, site: &str, payer: &str) -> Result<JsValue, JsError> {
+        #[wasm_bindgen(js_name = closeMeter)]
+        pub fn close_meter(&self, site: &str, reader: &str) -> Result<JsValue, JsError> {
             out(self
                 .inner
-                .close_contract(&key(site, "site")?, &key(payer, "payer")?))
+                .close_meter(&key(site, "site")?, &key(reader, "reader")?))
         }
     }
 }

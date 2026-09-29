@@ -5,32 +5,32 @@ use anchor_lang::prelude::*;
 #[account]
 #[derive(InitSpace)]
 pub struct Site {
-    /// Signer permitted to meter usage. This is the server, not the payer.
+    /// Signer permitted to meter usage. This is the server, not the reader.
     pub authority: Pubkey,
-    /// Mint that page views are priced and settled in (USDC in practice).
+    /// Mint that items are priced and settled in (USDC in practice).
     pub mint: Pubkey,
     /// Token account that collected funds land in.
     pub treasury: Pubkey,
-    /// Cost of a single page view, in mint base units.
-    pub page_price: u64,
+    /// Cost of a single item, in mint base units.
+    pub item_price: u64,
     /// Minimum unpaid balance worth the cost of a transfer.
     pub collection_threshold: u64,
-    /// Smallest limit a payer may authorize. Must exceed the threshold.
+    /// Smallest limit a reader may authorize. Must exceed the threshold.
     pub min_limit: u64,
     pub bump: u8,
 }
 
-/// A payer's spending contract with one site.
+/// A reader's spending meter with one site.
 ///
 /// Invariants maintained by the instructions:
 ///   paid <= used <= limit
 ///   used - paid < collection_threshold immediately after any settle
 #[account]
 #[derive(InitSpace)]
-pub struct Contract {
+pub struct Meter {
     pub site: Pubkey,
-    pub payer: Pubkey,
-    /// Ceiling on `used`, authorized by the payer's delegate approval.
+    pub reader: Pubkey,
+    /// Ceiling on `used`, authorized by the reader's delegate approval.
     pub limit: u64,
     /// Usage accrued, in mint base units.
     pub used: u64,
@@ -39,7 +39,7 @@ pub struct Contract {
     pub bump: u8,
 }
 
-impl Contract {
+impl Meter {
     /// Usage accrued but not yet transferred.
     pub fn unpaid(&self) -> u64 {
         self.used.saturating_sub(self.paid)

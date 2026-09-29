@@ -6,8 +6,8 @@ namespace SolPay\Core;
 
 /**
  * Instruction builders for the two instructions a server signs:
- * `initialize_site` and `meter_and_settle`. The payer-signed instructions
- * (`open_contract`, `renew_contract`, `close_contract`, `approve_checked`,
+ * `initialize_site` and `meter_and_settle`. The reader-signed instructions
+ * (`open_meter`, `renew_meter`, `close_meter`, `approve_checked`,
  * `revoke`) are deliberately absent: they're signed by a wallet adapter in
  * the browser regardless of what language the server runs, so a PHP server
  * has no use for them. See wasm-client/SPEC.md §3, "Two consumers".
@@ -33,13 +33,13 @@ final class Ix
         string $authority,
         string $mint,
         string $treasury,
-        int $pagePrice,
+        int $itemPrice,
         int $collectionThreshold,
         int $minLimit,
     ): Instruction {
         $site = Pda::siteAddress($authority, $program->id)['address'];
         $data = self::DISC_INITIALIZE_SITE
-            .pack('P', $pagePrice)
+            .pack('P', $itemPrice)
             .pack('P', $collectionThreshold)
             .pack('P', $minLimit);
 
@@ -53,30 +53,30 @@ final class Ix
     }
 
     /**
-     * Bump usage for `pageViews` and, if that carries the unpaid balance to
+     * Bump usage for `items` and, if that carries the unpaid balance to
      * the collection threshold, transfer it. Signed by the site authority;
-     * the payer is not present, and the transfer, if it happens, rides on
-     * the delegate approval taken when the contract was opened or renewed.
+     * the reader is not present, and the transfer, if it happens, rides on
+     * the delegate approval taken when the meter was opened or renewed.
      */
     public static function meterAndSettle(
         Program $program,
         string $site,
         string $authority,
-        string $payer,
-        string $payerTokenAccount,
+        string $reader,
+        string $readerTokenAccount,
         string $treasury,
         string $mint,
-        int $pageViews,
+        int $items,
     ): Instruction {
-        $contract = Pda::contractAddress($site, $payer, $program->id)['address'];
-        $data = self::DISC_METER_AND_SETTLE.pack('V', $pageViews);
+        $meter = Pda::meterAddress($site, $reader, $program->id)['address'];
+        $data = self::DISC_METER_AND_SETTLE.pack('V', $items);
 
         return new Instruction($program->id, [
             new AccountMeta($site, false, false),
             new AccountMeta($authority, true, false),
-            new AccountMeta($payer, false, false),
-            new AccountMeta($contract, false, true),
-            new AccountMeta($payerTokenAccount, false, true),
+            new AccountMeta($reader, false, false),
+            new AccountMeta($meter, false, true),
+            new AccountMeta($readerTokenAccount, false, true),
             new AccountMeta($treasury, false, true),
             new AccountMeta($mint, false, false),
             new AccountMeta($program->tokenProgram, false, false),

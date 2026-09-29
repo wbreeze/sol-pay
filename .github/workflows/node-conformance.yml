@@ -64,6 +64,9 @@ jobs:
       # From the published crate, not from this tree. The vectors are an
       # outside opinion about what the right answers are; generating them from
       # local source would only prove the bundle agrees with itself.
+      # TEMPORARY, 2026-09-29, until the next sol-pay-client release,
+      # that is what it proves: the generator builds against ../wasm-client --
+      # see php-client/vectors-gen/Cargo.toml.
       - name: Generate vectors
         working-directory: php-client/vectors-gen
         run: cargo run --release --locked > "$GITHUB_WORKSPACE/vectors.json"

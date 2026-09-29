@@ -6,16 +6,16 @@ use solana_pubkey::Pubkey;
 use super::program::Program;
 
 pub const SITE_SEED: &[u8] = b"site";
-pub const CONTRACT_SEED: &[u8] = b"contract";
+pub const METER_SEED: &[u8] = b"meter";
 
 impl Program {
     pub fn site_address(&self, authority: &Pubkey) -> (Pubkey, u8) {
         Pubkey::find_program_address(&[SITE_SEED, authority.as_ref()], &self.id())
     }
 
-    pub fn contract_address(&self, site: &Pubkey, payer: &Pubkey) -> (Pubkey, u8) {
+    pub fn meter_address(&self, site: &Pubkey, reader: &Pubkey) -> (Pubkey, u8) {
         Pubkey::find_program_address(
-            &[CONTRACT_SEED, site.as_ref(), payer.as_ref()],
+            &[METER_SEED, site.as_ref(), reader.as_ref()],
             &self.id(),
         )
     }
@@ -27,8 +27,8 @@ pub fn site_address(authority: &Pubkey) -> (Pubkey, u8) {
 }
 
 /// Derivation against the canonical deployment. See [`Program`] for another.
-pub fn contract_address(site: &Pubkey, payer: &Pubkey) -> (Pubkey, u8) {
-    Program::default().contract_address(site, payer)
+pub fn meter_address(site: &Pubkey, reader: &Pubkey) -> (Pubkey, u8) {
+    Program::default().meter_address(site, reader)
 }
 
 #[cfg(test)]
@@ -43,8 +43,8 @@ mod tests {
     fn the_free_functions_are_the_canonical_deployment() {
         assert_eq!(site_address(&k(1)), Program::default().site_address(&k(1)));
         assert_eq!(
-            contract_address(&k(1), &k(2)),
-            Program::default().contract_address(&k(1), &k(2))
+            meter_address(&k(1), &k(2)),
+            Program::default().meter_address(&k(1), &k(2))
         );
     }
 
@@ -53,8 +53,8 @@ mod tests {
         let mine = Program::new(k(9));
         assert_ne!(mine.site_address(&k(1)), site_address(&k(1)));
         assert_ne!(
-            mine.contract_address(&k(1), &k(2)),
-            contract_address(&k(1), &k(2))
+            mine.meter_address(&k(1), &k(2)),
+            meter_address(&k(1), &k(2))
         );
     }
 }

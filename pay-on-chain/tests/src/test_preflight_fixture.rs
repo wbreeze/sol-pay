@@ -14,7 +14,7 @@
 //! verdict there, and what the program then actually did.
 //!
 //! Why account bytes rather than a designed fixture format: PHP already
-//! decodes them, and `Site::decode` / `Contract::decode` / `TokenAccount::decode`
+//! decodes them, and `Site::decode` / `Meter::decode` / `TokenAccount::decode`
 //! are themselves checked byte-for-byte against Anchor-serialized accounts on
 //! every conformance run. So the boundary this crosses is one both sides
 //! already agree on, and no new schema has to be kept in step.
@@ -27,7 +27,7 @@
 //! eagerly and that guarantee is gone.
 //!
 //! The fixture is committed. It records only what the cases below touch:
-//! `charge`, `can_meter`, `will_settle`, `views_remaining`, `limit_floor` and
+//! `charge`, `can_meter`, `will_settle`, `items_remaining`, `limit_floor` and
 //! `diagnose`. `required_allowance` is the identity function and is not
 //! recorded. Consumed by `php-client/conformance/preflight.php`.
 
@@ -38,7 +38,7 @@ use solana_signer::Signer;
 
 use sol_pay_client::core::{
     error as client_error, preflight,
-    state::{Contract as ClientContract, Site as ClientSite, TokenAccount as ClientTokenAccount},
+    state::{Meter as ClientMeter, Site as ClientSite, TokenAccount as ClientTokenAccount},
 };
 
 use crate::harness::*;
@@ -54,22 +54,22 @@ fn hex(bytes: &[u8]) -> String {
 /// before the action this case is about.
 struct Snapshot {
     site: Vec<u8>,
-    contract: Vec<u8>,
+    meter: Vec<u8>,
     token_account: Vec<u8>,
 }
 
 fn snapshot(env: &Env) -> Snapshot {
-    let contract_addr = contract_pda(&env.site, &env.payer.pubkey());
+    let meter_addr = meter_pda(&env.site, &env.reader.pubkey());
     Snapshot {
         site: env.svm.get_account(&env.site).expect("site account").data,
-        contract: env
+        meter: env
             .svm
-            .get_account(&contract_addr)
-            .expect("contract account")
+            .get_account(&meter_addr)
+            .expect("meter account")
             .data,
         token_account: env
             .svm
-            .get_account(&env.payer_ata)
+            .get_account(&env.reader_ata)
             .expect("token account")
             .data,
     }
@@ -88,17 +88,17 @@ impl Fixture {
     /// "accepted", an Anchor error name, or "spl:0x1" -- or "n/a" where the
     /// case records a resting state with no following call. It is context for
     /// whoever reads a failure, not something the PHP side asserts on.
-    fn push(&mut self, name: &str, note: &str, snap: &Snapshot, page_views: u32, program: &str) {
+    fn push(&mut self, name: &str, note: &str, snap: &Snapshot, items: u32, program: &str) {
         let site = ClientSite::decode(&snap.site).expect("client decodes site");
-        let contract = ClientContract::decode(&snap.contract).expect("client decodes contract");
+        let meter = ClientMeter::decode(&snap.meter).expect("client decodes meter");
         let account =
             ClientTokenAccount::decode(&snap.token_account).expect("client decodes token account");
 
-        let charge = match preflight::charge(&site, page_views) {
+        let charge = match preflight::charge(&site, items) {
             Some(c) => c.to_string(),
             None => "null".to_string(),
         };
-        let can_meter = match preflight::can_meter(&contract, &site, page_views) {
+        let can_meter = match preflight::can_meter(&meter, &site, items) {
             Ok(()) => "null".to_string(),
             Err(preflight::Blocked::LimitReached { over }) => {
                 format!("{{\"kind\": \"LimitReached\", \"over\": {over}}}")
@@ -107,7 +107,7 @@ impl Fixture {
                 "{\"kind\": \"Overflow\", \"over\": null}".to_string()
             }
         };
-        let unpaid = contract.unpaid();
+        let unpaid = meter.unpaid();
         let shortfall = client_error::diagnose(&account, unpaid);
 
         let mut case = String::new();
@@ -115,32 +115,32 @@ impl Fixture {
         writeln!(case, "      \"name\": \"{name}\",").unwrap();
         writeln!(case, "      \"note\": \"{note}\",").unwrap();
         writeln!(case, "      \"site_hex\": \"{}\",", hex(&snap.site)).unwrap();
-        writeln!(case, "      \"contract_hex\": \"{}\",", hex(&snap.contract)).unwrap();
+        writeln!(case, "      \"meter_hex\": \"{}\",", hex(&snap.meter)).unwrap();
         writeln!(
             case,
             "      \"token_account_hex\": \"{}\",",
             hex(&snap.token_account)
         )
         .unwrap();
-        writeln!(case, "      \"page_views\": {page_views},").unwrap();
+        writeln!(case, "      \"items\": {items},").unwrap();
         writeln!(case, "      \"charge\": {charge},").unwrap();
         writeln!(case, "      \"can_meter\": {can_meter},").unwrap();
         writeln!(
             case,
             "      \"will_settle\": {},",
-            preflight::will_settle(&contract, &site, page_views)
+            preflight::will_settle(&meter, &site, items)
         )
         .unwrap();
         writeln!(
             case,
-            "      \"views_remaining\": {},",
-            preflight::views_remaining(&contract, &site)
+            "      \"items_remaining\": {},",
+            preflight::items_remaining(&meter, &site)
         )
         .unwrap();
         writeln!(
             case,
             "      \"limit_floor\": {},",
-            preflight::limit_floor(&site, Some(&contract))
+            preflight::limit_floor(&site, Some(&meter))
         )
         .unwrap();
         writeln!(case, "      \"unpaid\": {unpaid},").unwrap();
@@ -175,7 +175,7 @@ impl Fixture {
         let mut out = String::new();
         out.push_str("{\n");
         out.push_str("  \"_\": \"Generated by pay-on-chain/tests test_preflight_fixture.rs. Committed on purpose: a moved verdict is meant to show up as a diff. Do not hand-edit -- run bin/test-rust.\",\n");
-        writeln!(out, "  \"page_price\": {PAGE_PRICE},").unwrap();
+        writeln!(out, "  \"item_price\": {ITEM_PRICE},").unwrap();
         writeln!(out, "  \"collection_threshold\": {THRESHOLD},").unwrap();
         writeln!(out, "  \"min_limit\": {MIN_LIMIT},").unwrap();
         out.push_str("  \"cases\": [\n");
@@ -193,27 +193,27 @@ impl Fixture {
 fn record_what_the_program_does_for_the_php_port() {
     let mut fixture = Fixture::new();
 
-    // --- a fresh contract with room to spare -----------------------------
+    // --- a fresh meter with room to spare -----------------------------
     let mut env = Env::new(RICH);
     env.open(LIMIT).unwrap();
 
     let snap = snapshot(&env);
-    env.meter(1).expect("a fresh contract meters");
+    env.meter(1).expect("a fresh meter meters");
     fixture.push(
-        "fresh contract",
+        "fresh meter",
         "nothing used yet, nothing accrued",
         &snap,
         1,
         "accepted",
     );
 
-    // --- every view up to the first settle, and the settle itself --------
+    // --- every item up to the first settle, and the settle itself --------
     // will_settle must be false for each of these and true for the one that
     // crosses the threshold, checked against the treasury actually moving.
-    // Views 2..VIEWS_TO_THRESHOLD-1. The `meter(1)` above already spent view 1,
-    // and view VIEWS_TO_THRESHOLD is the one that settles -- it is recorded
+    // Items 2..ITEMS_TO_THRESHOLD-1. The `meter(1)` above already spent item 1,
+    // and item ITEMS_TO_THRESHOLD is the one that settles -- it is recorded
     // separately below, so it must not fall inside this loop.
-    for step in 2..VIEWS_TO_THRESHOLD {
+    for step in 2..ITEMS_TO_THRESHOLD {
         let snap = snapshot(&env);
         let before = env.token_balance(&env.treasury);
         env.meter(1).expect("under the limit");
@@ -232,11 +232,11 @@ fn record_what_the_program_does_for_the_php_port() {
 
     let snap = snapshot(&env);
     let before = env.token_balance(&env.treasury);
-    env.meter(1).expect("the settling view");
+    env.meter(1).expect("the settling item");
     let moved = env.token_balance(&env.treasury) > before;
     assert!(moved, "the predicate said this one would settle");
     fixture.push(
-        "the view that settles",
+        "the item that settles",
         "unpaid reaches the collection threshold, so money moves",
         &snap,
         1,
@@ -244,25 +244,25 @@ fn record_what_the_program_does_for_the_php_port() {
     );
 
     // --- the limit boundary ----------------------------------------------
-    // Spend to one view short, record there, then record at the limit where
+    // Spend to one item short, record there, then record at the limit where
     // the program must refuse.
-    let contract_addr = contract_pda(&env.site, &env.payer.pubkey());
+    let meter_addr = meter_pda(&env.site, &env.reader.pubkey());
     loop {
-        let raw = env.svm.get_account(&contract_addr).expect("contract").data;
-        let contract = ClientContract::decode(&raw).expect("decode contract");
+        let raw = env.svm.get_account(&meter_addr).expect("meter").data;
+        let meter = ClientMeter::decode(&raw).expect("decode meter");
         let site_raw = env.svm.get_account(&env.site).expect("site").data;
         let site = ClientSite::decode(&site_raw).expect("decode site");
-        if preflight::views_remaining(&contract, &site) <= 1 {
+        if preflight::items_remaining(&meter, &site) <= 1 {
             break;
         }
         env.meter(1).expect("still under the limit");
     }
 
     let snap = snapshot(&env);
-    env.meter(1).expect("the last view the limit allows");
+    env.meter(1).expect("the last item the limit allows");
     fixture.push(
-        "one view short of the limit",
-        "views_remaining is 1 and the program accepts it",
+        "one item short of the limit",
+        "items_remaining is 1 and the program accepts it",
         &snap,
         1,
         "accepted",
@@ -272,18 +272,18 @@ fn record_what_the_program_does_for_the_php_port() {
     assert_error(env.meter(1), "LimitReached");
     fixture.push(
         "at the limit",
-        "views_remaining is 0 and the program refuses",
+        "items_remaining is 0 and the program refuses",
         &snap,
         1,
         "LimitReached",
     );
 
-    // Two views over is still LimitReached, and `over` doubles.
+    // Two items over is still LimitReached, and `over` doubles.
     let snap = snapshot(&env);
     assert_error(env.meter(2), "LimitReached");
     fixture.push(
-        "two views past the limit",
-        "over is the charge for both views, not just the first",
+        "two items past the limit",
+        "over is the charge for both items, not just the first",
         &snap,
         2,
         "LimitReached",
@@ -294,18 +294,18 @@ fn record_what_the_program_does_for_the_php_port() {
     // number the client reports is the number the program enforces.
     let mut env = Env::new(RICH);
     env.open(LIMIT).unwrap();
-    env.meter(VIEWS_TO_THRESHOLD).unwrap();
+    env.meter(ITEMS_TO_THRESHOLD).unwrap();
     env.meter(3).unwrap();
 
     let snap = snapshot(&env);
     let site = ClientSite::decode(&snap.site).expect("decode site");
-    let contract = ClientContract::decode(&snap.contract).expect("decode contract");
-    let floor = preflight::limit_floor(&site, Some(&contract));
+    let meter = ClientMeter::decode(&snap.meter).expect("decode meter");
+    let floor = preflight::limit_floor(&site, Some(&meter));
 
-    let payer = env.payer.insecure_clone();
+    let reader = env.reader.insecure_clone();
     let under = [env.ix_approve(floor - 1), env.ix_renew(floor - 1)];
     assert!(
-        env.send(&under, &[&payer], &payer.pubkey()).is_err(),
+        env.send(&under, &[&reader], &reader.pubkey()).is_err(),
         "the program must refuse a limit below the floor the client reports"
     );
     fixture.push(
@@ -317,13 +317,13 @@ fn record_what_the_program_does_for_the_php_port() {
     );
 
     let at = [env.ix_approve(floor), env.ix_renew(floor)];
-    env.send(&at, &[&payer], &payer.pubkey())
+    env.send(&at, &[&reader], &reader.pubkey())
         .expect("the floor itself must be renewable");
 
     // --- a balance too small for the settle it is about to owe ------------
     let mut env = Env::new(THRESHOLD - 1);
     env.open(LIMIT).unwrap();
-    for _ in 0..(VIEWS_TO_THRESHOLD - 1) {
+    for _ in 0..(ITEMS_TO_THRESHOLD - 1) {
         env.meter(1).expect("accruing costs nothing yet");
     }
     let snap = snapshot(&env);
@@ -340,10 +340,10 @@ fn record_what_the_program_does_for_the_php_port() {
     // --- an allowance too small, with the balance fine --------------------
     let mut env = Env::new(RICH);
     env.open(LIMIT).unwrap();
-    let payer = env.payer.insecure_clone();
-    env.send(&[env.ix_approve(THRESHOLD - 1)], &[&payer], &payer.pubkey())
+    let reader = env.reader.insecure_clone();
+    env.send(&[env.ix_approve(THRESHOLD - 1)], &[&reader], &reader.pubkey())
         .unwrap();
-    for _ in 0..(VIEWS_TO_THRESHOLD - 1) {
+    for _ in 0..(ITEMS_TO_THRESHOLD - 1) {
         env.meter(1).expect("accruing costs nothing yet");
     }
     let snap = snapshot(&env);
@@ -363,10 +363,10 @@ fn record_what_the_program_does_for_the_php_port() {
     // --- the delegate SPL clears when the allowance reaches zero ----------
     let mut env = Env::new(RICH);
     env.open(LIMIT).unwrap();
-    let payer = env.payer.insecure_clone();
-    env.send(&[env.ix_approve(THRESHOLD)], &[&payer], &payer.pubkey())
+    let reader = env.reader.insecure_clone();
+    env.send(&[env.ix_approve(THRESHOLD)], &[&reader], &reader.pubkey())
         .unwrap();
-    env.meter(VIEWS_TO_THRESHOLD).unwrap();
+    env.meter(ITEMS_TO_THRESHOLD).unwrap();
     let snap = snapshot(&env);
     let account = ClientTokenAccount::decode(&snap.token_account).expect("decode token account");
     assert!(

@@ -4,10 +4,10 @@
 //! An integrator who scales twice turns an intended 50 USDC into 50,000,000
 //! of allowance, and nothing rejects it: `approve` checks no balance, and the
 //! program's delegate check only compares the allowance against the limit. The
-//! payer's chosen cap silently becomes their whole balance.
+//! reader's chosen cap silently becomes their whole balance.
 //!
 //! Owning the conversion removes that error class. Validating its output could
-//! not, because no validator knows what the payer meant.
+//! not, because no validator knows what the reader meant.
 
 /// Decimal strings, not floats. `0.1` is not representable in binary floating
 /// point, and a payment library that rounds is not one anybody can audit.

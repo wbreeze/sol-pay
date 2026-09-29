@@ -31,6 +31,10 @@ fi
 # from this tree -- which is the point: the vectors are an outside opinion
 # about what the right answers are.
 #
+# TEMPORARY, 2026-09-29, until the next sol-pay-client release, they come from this tree
+# after all (php-client/vectors-gen/Cargo.toml), so this proves the bundle
+# agrees with its own source and not with a release.
+#
 # Regenerated every run, matching bin/test-php and node-conformance.yml, which
 # has always regenerated unconditionally. The reason here is not the one in
 # bin/test-php -- this job is a loading contract and not drift control, so a

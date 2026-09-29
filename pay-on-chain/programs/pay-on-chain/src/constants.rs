@@ -4,4 +4,4 @@ use anchor_lang::prelude::*;
 pub const SITE_SEED: &[u8] = b"site";
 
 #[constant]
-pub const CONTRACT_SEED: &[u8] = b"contract";
+pub const METER_SEED: &[u8] = b"meter";

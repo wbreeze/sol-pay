@@ -5,13 +5,13 @@
 //! thing is also the shortest thing to write.
 //!
 //! The rule they encode is the one an integrator gets wrong once and then
-//! debugs for an hour: `open_contract` and `renew_contract` verify on chain
-//! that the payer's token account already names the contract PDA as delegate,
+//! debugs for an hour: `open_meter` and `renew_meter` verify on chain
+//! that the reader's token account already names the meter PDA as delegate,
 //! and they fail rather than trust the client to have done it. The approval
 //! must therefore come *earlier in the same transaction*.
 //!
 //! The names say the pair and its order outright -- `approve_and_open`, not
-//! `open_contract` again -- because these sit on [`Program`] alongside the
+//! `open_meter` again -- because these sit on [`Program`] alongside the
 //! single-instruction builders they wrap.
 
 use solana_instruction::Instruction;
@@ -20,19 +20,19 @@ use solana_pubkey::Pubkey;
 use super::program::Program;
 
 impl Program {
-    /// Authorize, then open. Both signed by the payer.
+    /// Authorize, then open. Both signed by the reader.
     pub fn approve_and_open(
         &self,
-        payer_token_account: &Pubkey,
+        reader_token_account: &Pubkey,
         mint: &Pubkey,
-        payer: &Pubkey,
+        reader: &Pubkey,
         site: &Pubkey,
         limit: u64,
         decimals: u8,
     ) -> [Instruction; 2] {
         [
-            self.approve_checked(payer_token_account, mint, payer, site, limit, decimals),
-            self.open_contract(site, payer, payer_token_account, limit),
+            self.approve_checked(reader_token_account, mint, reader, site, limit, decimals),
+            self.open_meter(site, reader, reader_token_account, limit),
         ]
     }
 
@@ -42,71 +42,71 @@ impl Program {
     /// limit is passed outright rather than as a difference.
     pub fn approve_and_renew(
         &self,
-        payer_token_account: &Pubkey,
+        reader_token_account: &Pubkey,
         mint: &Pubkey,
-        payer: &Pubkey,
+        reader: &Pubkey,
         site: &Pubkey,
         new_limit: u64,
         decimals: u8,
     ) -> [Instruction; 2] {
         [
-            self.approve_checked(payer_token_account, mint, payer, site, new_limit, decimals),
-            self.renew_contract(site, payer, payer_token_account, new_limit),
+            self.approve_checked(reader_token_account, mint, reader, site, new_limit, decimals),
+            self.renew_meter(site, reader, reader_token_account, new_limit),
         ]
     }
 
     /// Close, then withdraw the approval.
     ///
-    /// The leftover approval is inert once the contract account is gone -- the
-    /// PDA can no longer sign -- but it stays visible in the payer's wallet
+    /// The leftover approval is inert once the meter account is gone -- the
+    /// PDA can no longer sign -- but it stays visible in the reader's wallet
     /// until revoked, and a token account has exactly one delegate, so leaving
-    /// it in place blocks the payer opening a contract with another site.
+    /// it in place blocks the reader opening a meter with another site.
     pub fn close_and_revoke(
         &self,
-        payer_token_account: &Pubkey,
-        payer: &Pubkey,
+        reader_token_account: &Pubkey,
+        reader: &Pubkey,
         site: &Pubkey,
     ) -> [Instruction; 2] {
         [
-            self.close_contract(site, payer),
-            self.revoke(payer_token_account, payer),
+            self.close_meter(site, reader),
+            self.revoke(reader_token_account, reader),
         ]
     }
 }
 
 // --- the canonical deployment, on SPL Token ------------------------------
 
-/// Authorize, then open. Both signed by the payer.
+/// Authorize, then open. Both signed by the reader.
 pub fn approve_and_open(
-    payer_token_account: &Pubkey,
+    reader_token_account: &Pubkey,
     mint: &Pubkey,
-    payer: &Pubkey,
+    reader: &Pubkey,
     site: &Pubkey,
     limit: u64,
     decimals: u8,
 ) -> [Instruction; 2] {
-    Program::default().approve_and_open(payer_token_account, mint, payer, site, limit, decimals)
+    Program::default().approve_and_open(reader_token_account, mint, reader, site, limit, decimals)
 }
 
 /// Re-authorize at the new limit, then renew.
 pub fn approve_and_renew(
-    payer_token_account: &Pubkey,
+    reader_token_account: &Pubkey,
     mint: &Pubkey,
-    payer: &Pubkey,
+    reader: &Pubkey,
     site: &Pubkey,
     new_limit: u64,
     decimals: u8,
 ) -> [Instruction; 2] {
-    Program::default().approve_and_renew(payer_token_account, mint, payer, site, new_limit, decimals)
+    Program::default().approve_and_renew(reader_token_account, mint, reader, site, new_limit, decimals)
 }
 
 /// Close, then withdraw the approval.
 pub fn close_and_revoke(
-    payer_token_account: &Pubkey,
-    payer: &Pubkey,
+    reader_token_account: &Pubkey,
+    reader: &Pubkey,
     site: &Pubkey,
 ) -> [Instruction; 2] {
-    Program::default().close_and_revoke(payer_token_account, payer, site)
+    Program::default().close_and_revoke(reader_token_account, reader, site)
 }
 
 #[cfg(test)]
@@ -132,10 +132,10 @@ mod tests {
 
     #[test]
     fn the_pair_matches_the_builders_it_wraps() {
-        let (ata, mint, payer, site) = (k(1), k(2), k(3), k(4));
-        let t = approve_and_open(&ata, &mint, &payer, &site, 500, 6);
-        assert_eq!(t[0], ix::approve_checked(&ata, &mint, &payer, &site, 500, 6));
-        assert_eq!(t[1], ix::open_contract(&site, &payer, &ata, 500));
+        let (ata, mint, reader, site) = (k(1), k(2), k(3), k(4));
+        let t = approve_and_open(&ata, &mint, &reader, &site, 500, 6);
+        assert_eq!(t[0], ix::approve_checked(&ata, &mint, &reader, &site, 500, 6));
+        assert_eq!(t[1], ix::open_meter(&site, &reader, &ata, 500));
     }
 
     #[test]
@@ -153,7 +153,7 @@ mod tests {
         let mine = Program::new(k(9));
         let t = mine.approve_and_open(&k(1), &k(2), &k(3), &k(4), 500, 6);
         assert_eq!(t[1].program_id, k(9));
-        assert_eq!(t[0].accounts[2].pubkey, mine.contract_address(&k(4), &k(3)).0);
+        assert_eq!(t[0].accounts[2].pubkey, mine.meter_address(&k(4), &k(3)).0);
     }
 
     /// And within one token program. A pair built by a Token-2022 handle must

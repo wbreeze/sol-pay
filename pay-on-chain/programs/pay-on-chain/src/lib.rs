@@ -1,13 +1,13 @@
 //! Pay-as-you-go metering for site content.
 //!
-//! The payer approves this program's contract PDA as delegate on their token
-//! account for a limit they choose. The site's server then meters page views
-//! without the payer present, and transfers only once the unpaid balance is
+//! The reader approves this program's meter PDA as delegate on their token
+//! account for a limit they choose. The site's server then meters items
+//! without the reader present, and transfers only once the unpaid balance is
 //! worth a transaction. See `state-machine.plantuml` at the repository root,
 //! which is the design document this implements.
 //!
 //! Two amounts that are easy to confuse:
-//!   * the *spending limit* caps `used` and is what the payer authorizes;
+//!   * the *spending limit* caps `used` and is what the reader authorizes;
 //!   * the *collection threshold* is the smallest unpaid balance worth
 //!     transferring, and exists only to amortize transaction cost.
 
@@ -33,12 +33,12 @@ pub mod pay_on_chain {
     /// Stand up a site's pricing. Signed by the server authority.
     pub fn initialize_site(
         ctx: Context<InitializeSite>,
-        page_price: u64,
+        item_price: u64,
         collection_threshold: u64,
         min_limit: u64,
     ) -> Result<()> {
-        require!(page_price > 0, PayError::ZeroPagePrice);
-        // A minimum limit at or below the threshold would let a payer sign up
+        require!(item_price > 0, PayError::ZeroItemPrice);
+        // A minimum limit at or below the threshold would let a reader sign up
         // for less than a single collection, so the first settle could never
         // fire within their limit.
         require!(
@@ -50,64 +50,64 @@ pub mod pay_on_chain {
         site.authority = ctx.accounts.authority.key();
         site.mint = ctx.accounts.mint.key();
         site.treasury = ctx.accounts.treasury.key();
-        site.page_price = page_price;
+        site.item_price = item_price;
         site.collection_threshold = collection_threshold;
         site.min_limit = min_limit;
         site.bump = ctx.bumps.site;
         Ok(())
     }
 
-    /// Create a payer's contract with this site.
+    /// Create a reader's meter with this site.
     ///
-    /// The client must place an SPL `approve` naming this contract PDA as
+    /// The client must place an SPL `approve` naming this meter PDA as
     /// delegate *earlier in the same transaction*; this instruction verifies
     /// it rather than trusting the client to have done it.
-    pub fn open_contract(ctx: Context<OpenContract>, limit: u64) -> Result<()> {
+    pub fn open_meter(ctx: Context<OpenMeter>, limit: u64) -> Result<()> {
         let site = &ctx.accounts.site;
         require!(limit >= site.min_limit, PayError::LimitBelowMinimum);
 
-        let contract_key = ctx.accounts.contract.key();
-        require_delegate(&ctx.accounts.payer_token_account, &contract_key, limit)?;
+        let meter_key = ctx.accounts.meter.key();
+        require_delegate(&ctx.accounts.reader_token_account, &meter_key, limit)?;
 
-        let contract = &mut ctx.accounts.contract;
-        contract.site = site.key();
-        contract.payer = ctx.accounts.payer.key();
-        contract.limit = limit;
-        contract.used = 0;
-        contract.paid = 0;
-        contract.bump = ctx.bumps.contract;
+        let meter = &mut ctx.accounts.meter;
+        meter.site = site.key();
+        meter.reader = ctx.accounts.reader.key();
+        meter.limit = limit;
+        meter.used = 0;
+        meter.paid = 0;
+        meter.bump = ctx.bumps.meter;
         Ok(())
     }
 
-    /// Bump usage for `page_views` and, if that carries the unpaid balance to
+    /// Bump usage for `items` and, if that carries the unpaid balance to
     /// the collection threshold, transfer the whole unpaid balance in the same
     /// instruction. Increment and transfer therefore succeed or fail together.
-    pub fn meter_and_settle(ctx: Context<MeterAndSettle>, page_views: u32) -> Result<()> {
+    pub fn meter_and_settle(ctx: Context<MeterAndSettle>, items: u32) -> Result<()> {
         let site = &ctx.accounts.site;
 
         let charge = site
-            .page_price
-            .checked_mul(page_views as u64)
+            .item_price
+            .checked_mul(items as u64)
             .ok_or(PayError::MathOverflow)?;
-        let new_used = ctx.accounts.contract
+        let new_used = ctx.accounts.meter
             .used
             .checked_add(charge)
             .ok_or(PayError::MathOverflow)?;
-        require!(new_used <= ctx.accounts.contract.limit, PayError::LimitReached);
+        require!(new_used <= ctx.accounts.meter.limit, PayError::LimitReached);
 
         let unpaid = new_used
-            .checked_sub(ctx.accounts.contract.paid)
+            .checked_sub(ctx.accounts.meter.paid)
             .ok_or(PayError::MathOverflow)?;
 
         let mut transferred = 0u64;
         if unpaid >= site.collection_threshold {
             let site_key = site.key();
-            let payer_key = ctx.accounts.payer.key();
-            let bump = ctx.accounts.contract.bump;
+            let reader_key = ctx.accounts.reader.key();
+            let bump = ctx.accounts.meter.bump;
             let seeds: &[&[u8]] = &[
-                CONTRACT_SEED,
+                METER_SEED,
                 site_key.as_ref(),
-                payer_key.as_ref(),
+                reader_key.as_ref(),
                 &[bump],
             ];
 
@@ -115,11 +115,11 @@ pub mod pay_on_chain {
                 CpiContext::new_with_signer(
                     ctx.accounts.token_program.to_account_info(),
                     TransferChecked {
-                        from: ctx.accounts.payer_token_account.to_account_info(),
+                        from: ctx.accounts.reader_token_account.to_account_info(),
                         mint: ctx.accounts.mint.to_account_info(),
                         to: ctx.accounts.treasury.to_account_info(),
-                        // The contract PDA is the delegate the payer approved.
-                        authority: ctx.accounts.contract.to_account_info(),
+                        // The meter PDA is the delegate the reader approved.
+                        authority: ctx.accounts.meter.to_account_info(),
                     },
                     &[seeds],
                 ),
@@ -128,16 +128,16 @@ pub mod pay_on_chain {
             )?;
 
             transferred = unpaid;
-            ctx.accounts.contract.paid = new_used;
+            ctx.accounts.meter.paid = new_used;
         }
 
-        ctx.accounts.contract.used = new_used;
+        ctx.accounts.meter.used = new_used;
 
         emit!(Metered {
-            contract: ctx.accounts.contract.key(),
-            page_views,
+            meter: ctx.accounts.meter.key(),
+            items,
             used: new_used,
-            paid: ctx.accounts.contract.paid,
+            paid: ctx.accounts.meter.paid,
             transferred,
         });
         Ok(())
@@ -145,53 +145,53 @@ pub mod pay_on_chain {
 
     /// Renew with a fresh limit.
     ///
-    /// Usage already paid for is forgiven from the counter, so the payer
+    /// Usage already paid for is forgiven from the counter, so the reader
     /// starts the new period owing only the residue that was too small to
     /// collect. A matching SPL `approve` for the new limit must precede this
     /// instruction in the transaction.
-    pub fn renew_contract(ctx: Context<RenewContract>, new_limit: u64) -> Result<()> {
+    pub fn renew_meter(ctx: Context<RenewMeter>, new_limit: u64) -> Result<()> {
         let site = &ctx.accounts.site;
         require!(new_limit >= site.min_limit, PayError::LimitBelowMinimum);
 
-        let carried = ctx.accounts.contract
+        let carried = ctx.accounts.meter
             .used
-            .checked_sub(ctx.accounts.contract.paid)
+            .checked_sub(ctx.accounts.meter.paid)
             .ok_or(PayError::MathOverflow)?;
         require!(new_limit >= carried, PayError::LimitBelowUsage);
 
-        let contract_key = ctx.accounts.contract.key();
+        let meter_key = ctx.accounts.meter.key();
         // Nothing is paid against the new limit yet, so the allowance has to
         // cover all of it.
-        require_delegate(&ctx.accounts.payer_token_account, &contract_key, new_limit)?;
+        require_delegate(&ctx.accounts.reader_token_account, &meter_key, new_limit)?;
 
-        let contract = &mut ctx.accounts.contract;
-        contract.used = carried;
-        contract.paid = 0;
-        contract.limit = new_limit;
+        let meter = &mut ctx.accounts.meter;
+        meter.used = carried;
+        meter.paid = 0;
+        meter.limit = new_limit;
 
         emit!(Renewed {
-            contract: contract_key,
+            meter: meter_key,
             limit: new_limit,
             carried,
         });
         Ok(())
     }
 
-    /// Delete the contract. Any residue is below the collection threshold by
+    /// Delete the meter. Any residue is below the collection threshold by
     /// construction, so it is left uncollected rather than transferred.
-    /// The payer may revoke the delegate in the same transaction.
-    pub fn close_contract(ctx: Context<CloseContract>) -> Result<()> {
-        let contract = &ctx.accounts.contract;
+    /// The reader may revoke the delegate in the same transaction.
+    pub fn close_meter(ctx: Context<CloseMeter>) -> Result<()> {
+        let meter = &ctx.accounts.meter;
         emit!(Closed {
-            contract: contract.key(),
-            forgiven: contract.unpaid(),
+            meter: meter.key(),
+            forgiven: meter.unpaid(),
         });
         Ok(())
     }
 }
 
-/// The payer's token account must name `expected` as delegate with at least
-/// `needed` still allowed. This is what makes an absent payer chargeable, so
+/// The reader's token account must name `expected` as delegate with at least
+/// `needed` still allowed. This is what makes an absent reader chargeable, so
 /// it is checked on chain rather than assumed.
 fn require_delegate(
     token_account: &InterfaceAccount<TokenAccount>,
@@ -227,23 +227,23 @@ pub struct InitializeSite<'info> {
 }
 
 #[derive(Accounts)]
-pub struct OpenContract<'info> {
+pub struct OpenMeter<'info> {
     #[account(mut)]
-    pub payer: Signer<'info>,
+    pub reader: Signer<'info>,
     pub site: Account<'info, Site>,
     #[account(
         init,
-        payer = payer,
-        space = 8 + Contract::INIT_SPACE,
-        seeds = [CONTRACT_SEED, site.key().as_ref(), payer.key().as_ref()],
+        payer = reader,
+        space = 8 + Meter::INIT_SPACE,
+        seeds = [METER_SEED, site.key().as_ref(), reader.key().as_ref()],
         bump
     )]
-    pub contract: Account<'info, Contract>,
+    pub meter: Account<'info, Meter>,
     #[account(
-        constraint = payer_token_account.owner == payer.key(),
-        constraint = payer_token_account.mint == site.mint,
+        constraint = reader_token_account.owner == reader.key(),
+        constraint = reader_token_account.mint == site.mint,
     )]
-    pub payer_token_account: InterfaceAccount<'info, TokenAccount>,
+    pub reader_token_account: InterfaceAccount<'info, TokenAccount>,
     pub system_program: Program<'info, System>,
 }
 
@@ -251,24 +251,24 @@ pub struct OpenContract<'info> {
 pub struct MeterAndSettle<'info> {
     #[account(has_one = authority, has_one = mint)]
     pub site: Account<'info, Site>,
-    /// The server meters; the payer is not present.
+    /// The server meters; the reader is not present.
     pub authority: Signer<'info>,
-    /// CHECK: identity only, tied to the contract by `has_one` and used as a seed.
-    pub payer: UncheckedAccount<'info>,
+    /// CHECK: identity only, tied to the meter by `has_one` and used as a seed.
+    pub reader: UncheckedAccount<'info>,
     #[account(
         mut,
         has_one = site,
-        has_one = payer,
-        seeds = [CONTRACT_SEED, site.key().as_ref(), payer.key().as_ref()],
-        bump = contract.bump
+        has_one = reader,
+        seeds = [METER_SEED, site.key().as_ref(), reader.key().as_ref()],
+        bump = meter.bump
     )]
-    pub contract: Account<'info, Contract>,
+    pub meter: Account<'info, Meter>,
     #[account(
         mut,
-        constraint = payer_token_account.owner == payer.key(),
-        constraint = payer_token_account.mint == site.mint,
+        constraint = reader_token_account.owner == reader.key(),
+        constraint = reader_token_account.mint == site.mint,
     )]
-    pub payer_token_account: InterfaceAccount<'info, TokenAccount>,
+    pub reader_token_account: InterfaceAccount<'info, TokenAccount>,
     #[account(mut, address = site.treasury)]
     pub treasury: InterfaceAccount<'info, TokenAccount>,
     pub mint: InterfaceAccount<'info, Mint>,
@@ -276,46 +276,46 @@ pub struct MeterAndSettle<'info> {
 }
 
 #[derive(Accounts)]
-pub struct RenewContract<'info> {
+pub struct RenewMeter<'info> {
     #[account(mut)]
-    pub payer: Signer<'info>,
+    pub reader: Signer<'info>,
     pub site: Account<'info, Site>,
     #[account(
         mut,
         has_one = site,
-        has_one = payer,
-        seeds = [CONTRACT_SEED, site.key().as_ref(), payer.key().as_ref()],
-        bump = contract.bump
+        has_one = reader,
+        seeds = [METER_SEED, site.key().as_ref(), reader.key().as_ref()],
+        bump = meter.bump
     )]
-    pub contract: Account<'info, Contract>,
+    pub meter: Account<'info, Meter>,
     #[account(
-        constraint = payer_token_account.owner == payer.key(),
-        constraint = payer_token_account.mint == site.mint,
+        constraint = reader_token_account.owner == reader.key(),
+        constraint = reader_token_account.mint == site.mint,
     )]
-    pub payer_token_account: InterfaceAccount<'info, TokenAccount>,
+    pub reader_token_account: InterfaceAccount<'info, TokenAccount>,
     pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
-pub struct CloseContract<'info> {
+pub struct CloseMeter<'info> {
     #[account(mut)]
-    pub payer: Signer<'info>,
+    pub reader: Signer<'info>,
     pub site: Account<'info, Site>,
     #[account(
         mut,
-        close = payer,
+        close = reader,
         has_one = site,
-        has_one = payer,
-        seeds = [CONTRACT_SEED, site.key().as_ref(), payer.key().as_ref()],
-        bump = contract.bump
+        has_one = reader,
+        seeds = [METER_SEED, site.key().as_ref(), reader.key().as_ref()],
+        bump = meter.bump
     )]
-    pub contract: Account<'info, Contract>,
+    pub meter: Account<'info, Meter>,
 }
 
 #[event]
 pub struct Metered {
-    pub contract: Pubkey,
-    pub page_views: u32,
+    pub meter: Pubkey,
+    pub items: u32,
     pub used: u64,
     pub paid: u64,
     pub transferred: u64,
@@ -323,13 +323,13 @@ pub struct Metered {
 
 #[event]
 pub struct Renewed {
-    pub contract: Pubkey,
+    pub meter: Pubkey,
     pub limit: u64,
     pub carried: u64,
 }
 
 #[event]
 pub struct Closed {
-    pub contract: Pubkey,
+    pub meter: Pubkey,
     pub forgiven: u64,
 }

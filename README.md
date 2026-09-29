@@ -44,7 +44,7 @@ Two Rust crates, and one PHP port:
 ## Payment model
 
 The payment model is that a caller identifies with a wallet.  The wallet pays
-for what they use-- a fee per use. The wallet signs a contract allowing
+for what they use-- a fee per use. The wallet authorizes a meter allowing
 incremental charges up to a limit.  The site may ask to refresh the limit when
 reaching it.
 
@@ -74,9 +74,9 @@ metered content.
 The bold lines show the happy path.  It goes like this:
 
 - viewer navigates to metered content, and the site knows their wallet address
-- server derives the contract address from the site and wallet addresses,
+- server derives the meter address from the site and wallet addresses,
   and reads the account
-- server makes one metering call, which raises the usage by the page view
+- server makes one metering call, which raises the usage by the item
   amount
 - that same call moves money only when the unpaid total has reached a
   collection threshold. The transfer is a cross-program invocation inside the
@@ -90,40 +90,40 @@ the address. See [`wasm-client/SPEC.md` §4][spec4].
 
 [spec4]: wasm-client/SPEC.md#4-what-the-integrator-owns
 
-Every contract is derived from the site and the payer's wallet address, so
-identifying the viewer *is* finding the contract. There is no session token
+Every meter is derived from the site and the reader's wallet address, so
+identifying the viewer *is* finding the meter. There is no session token
 in the protocol and nothing to look up but an account.
 
 Only two authorizations appear in the flow: the site's authority over its
-own contracts, which is what lets it meter, and the payer's authorization of
+own meters, which is what lets it meter, and the reader's authorization of
 the spend, which is the SPL approval the whole design rests on.
 
-Viewers without a contract go to the set-meter page. It includes details
+Viewers without a meter go to the set-meter page. It includes details
 about the cost and lets the viewer choose a limit. Setting the meter creates
-the contract account and takes the payer's authorization of the spend, both in
+the meter account and takes the reader's authorization of the spend, both in
 one transaction. The authorization has to come first. The program checks
 that it did.
 
 The dialog and the server must enforce a minimum for
-the limit amount that is some multiple of the page view amount.
+the limit amount that is some multiple of the item amount.
 A multiple of one does not make much sense. Forty or fifty multiple yields a
 better minimum. The program itself requires the minimum to exceed the
 collection threshold and refuses `initialize_site` otherwise
 (`MinimumBelowThreshold`): a minimum at or below the threshold would let a
-payer sign up for less than a single collection, so the first settle could
+reader sign up for less than a single collection, so the first settle could
 never fire within their limit.
 
 With the account set-up and authorized, the viewer returns to the happy path.
 
 When a viewer reaches their limit, the server shows them a screen that
 provides a wrapup of the usage. It offers to renew the limit, at the same
-amount or a new one, or to close the contract.
+amount or a new one, or to close the meter.
 
 Closing forgives whatever is unpaid. That is a decision rather than an
 omission. A transfer can always be refused -- a short balance, an approval
 revoked or replaced, a frozen account -- and a close is where those are most
-likely. A close carrying a transfer could fail and leave the payer unable
-to leave. `close_contract` therefore emits `Closed { forgiven }` and moves no
+likely. A close carrying a transfer could fail and leave the reader unable
+to leave. `close_meter` therefore emits `Closed { forgiven }` and moves no
 money.
 
 ## What the integrator owns
@@ -136,13 +136,13 @@ invoke. Nothing else. The library does not route, render, format, or decide.
 
 The obligation that comes with that is a single sentence: **keep a mapping
 from your viewer to a wallet address, and hand us the address.** The payment
-core needs exactly one input. `meter_and_settle` derives the contract from
-`[b"contract", site, payer]`. Its accounts carry no session token of
+core needs exactly one input. `meter_and_settle` derives the meter from
+`[b"meter", site, reader]`. Its accounts carry no session token of
 any kind. Who the visitor is stays the site's own affair -- accounts, login,
 SSO, whatever it already runs.
 
 This library is authoritative about instruction encoding, PDA derivation,
-account layout, the rule that `approve` must precede `open_contract` in the
+account layout, the rule that `approve` must precede `open_meter` in the
 same transaction, and the arithmetic that decides whether a meter call will
 succeed. It has no view on what limit to suggest, how to format an amount, when
 to show the meter, or what to do when a payment fails.

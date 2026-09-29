@@ -1,6 +1,7 @@
 //! Generates conformance vectors for php-client to check itself against:
 //! PDA derivation and one instruction from the published `sol-pay-client`
-//! crate, plus one genuine Anchor-serialized `Site`/`Contract` account and
+//! crate (temporarily the local one -- see the note in Cargo.toml), plus
+//! one genuine Anchor-serialized `Site`/`Meter` account and
 //! the program's own error code tables, both sourced directly from the
 //! `pay-on-chain` program crate rather than copied by hand.
 //!
@@ -154,11 +155,14 @@ fn main() {
     }
     println!("  ],");
 
-    println!("  \"contract\": [");
+    println!("  \"meter\": [");
     for i in 0..n {
         let (site, _) = pda::site_address(&seeded("authority", i));
-        let payer = seeded("payer", i);
-        let (addr, bump) = pda::contract_address(&site, &payer);
+        // "payer" is a seed label, not a name: the tags are frozen with every
+        // literal hardcoded against these inputs, so the 2026-09-29 rename
+        // (SPEC.md §4.11) left them alone.
+        let reader = seeded("payer", i);
+        let (addr, bump) = pda::meter_address(&site, &reader);
         let sep = if i + 1 == n { "" } else { "," };
         println!("    {{\"i\":{i},\"address\":\"{addr}\",\"bump\":{bump}}}{sep}");
     }
@@ -168,13 +172,13 @@ fn main() {
     // the argument encoding, and the account list with its signer/writable flags.
     let authority = seeded("authority", 0);
     let (site, _) = pda::site_address(&authority);
-    let payer = seeded("payer", 0);
-    let payer_ata = seeded("payer-ata", 0);
+    let reader = seeded("payer", 0);
+    let reader_ata = seeded("payer-ata", 0);
     let treasury = seeded("treasury", 0);
     let mint = seeded("mint", 0);
-    let inst = ix::meter_and_settle(&site, &authority, &payer, &payer_ata, &treasury, &mint, 7);
+    let inst = ix::meter_and_settle(&site, &authority, &reader, &reader_ata, &treasury, &mint, 7);
     println!("  \"meter_and_settle\": {{");
-    println!("    \"page_views\": 7,");
+    println!("    \"items\": 7,");
     println!("    \"program_id\": \"{}\",", inst.program_id);
     println!("    \"data_hex\": \"{}\",", hex(&inst.data));
     println!("    \"accounts\": [");
@@ -263,7 +267,7 @@ fn main() {
         authority,
         mint,
         treasury,
-        page_price: 10_000,
+        item_price: 10_000,
         collection_threshold: 250_000,
         min_limit: 500_000,
         bump: 254,
@@ -275,32 +279,32 @@ fn main() {
     println!("    \"authority\": \"{authority}\",");
     println!("    \"mint\": \"{mint}\",");
     println!("    \"treasury\": \"{treasury}\",");
-    println!("    \"page_price\": {},", onchain_site.page_price);
+    println!("    \"item_price\": {},", onchain_site.item_price);
     println!("    \"collection_threshold\": {},", onchain_site.collection_threshold);
     println!("    \"min_limit\": {},", onchain_site.min_limit);
     println!("    \"bump\": {}", onchain_site.bump);
     println!("  }},");
 
-    // Same discipline for Contract. `site` is the real PDA derived above, so
+    // Same discipline for Meter. `site` is the real PDA derived above, so
     // this is internally consistent with the meter_and_settle vector too.
-    let onchain_contract = pay_on_chain::state::Contract {
+    let onchain_meter = pay_on_chain::state::Meter {
         site,
-        payer,
+        reader,
         limit: 1_000_000,
         used: 250_000,
         paid: 100_000,
         bump: 253,
     };
-    let mut contract_bytes = pay_on_chain::state::Contract::DISCRIMINATOR.to_vec();
-    contract_bytes.extend(onchain_contract.try_to_vec().expect("Contract serializes"));
-    println!("  \"contract_account\": {{");
-    println!("    \"data_hex\": \"{}\",", hex(&contract_bytes));
+    let mut meter_bytes = pay_on_chain::state::Meter::DISCRIMINATOR.to_vec();
+    meter_bytes.extend(onchain_meter.try_to_vec().expect("Meter serializes"));
+    println!("  \"meter_account\": {{");
+    println!("    \"data_hex\": \"{}\",", hex(&meter_bytes));
     println!("    \"site\": \"{site}\",");
-    println!("    \"payer\": \"{payer}\",");
-    println!("    \"limit\": {},", onchain_contract.limit);
-    println!("    \"used\": {},", onchain_contract.used);
-    println!("    \"paid\": {},", onchain_contract.paid);
-    println!("    \"bump\": {}", onchain_contract.bump);
+    println!("    \"reader\": \"{reader}\",");
+    println!("    \"limit\": {},", onchain_meter.limit);
+    println!("    \"used\": {},", onchain_meter.used);
+    println!("    \"paid\": {},", onchain_meter.paid);
+    println!("    \"bump\": {}", onchain_meter.bump);
     println!("  }},");
 
     // Every PayError variant's real Anchor code -- ERROR_CODE_OFFSET (6000)
@@ -311,7 +315,7 @@ fn main() {
     let pay_errors: &[(&str, u32)] = &[
         ("LimitBelowMinimum", PayError::LimitBelowMinimum as u32 + anchor_lang::error::ERROR_CODE_OFFSET),
         ("MinimumBelowThreshold", PayError::MinimumBelowThreshold as u32 + anchor_lang::error::ERROR_CODE_OFFSET),
-        ("ZeroPagePrice", PayError::ZeroPagePrice as u32 + anchor_lang::error::ERROR_CODE_OFFSET),
+        ("ZeroItemPrice", PayError::ZeroItemPrice as u32 + anchor_lang::error::ERROR_CODE_OFFSET),
         ("LimitReached", PayError::LimitReached as u32 + anchor_lang::error::ERROR_CODE_OFFSET),
         ("DelegateNotSet", PayError::DelegateNotSet as u32 + anchor_lang::error::ERROR_CODE_OFFSET),
         ("DelegateMismatch", PayError::DelegateMismatch as u32 + anchor_lang::error::ERROR_CODE_OFFSET),

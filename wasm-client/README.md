@@ -16,7 +16,7 @@ split so the useful part is not tied to a browser:
 ```
 rustup target add wasm32-unknown-unknown
 cargo test                                        # core tests, native
-cargo run --example open_contract                 # the write path, printed
+cargo run --example open_meter                 # the write path, printed
 wasm-pack build --target web -- --features wasm   # browser bundle in ./pkg
 ```
 
@@ -24,9 +24,9 @@ Or `bin/test-rust` and `bin/build-rust --client` from the repository root,
 which add `--locked` and, for the program, everything the LiteSVM harness
 needs.
 
-`examples/open_contract.rs` is the browser's half of an integration in about
+`examples/open_meter.rs` is the browser's half of an integration in about
 sixty lines: derive the addresses, convert the amount, build the two
-instructions a payer signs, stop. It is also a check on this crate's public
+instructions a reader signs, stop. It is also a check on this crate's public
 surface. An example links the library as an external crate, so it reaches only
 what an integrator can reach, and `cargo test` builds it -- so a change that
 breaks a real call site fails the test run rather than waiting for someone to
@@ -47,14 +47,14 @@ await init();
 
 const pay = new PayOnChain();
 
-// approve must come first: it is what makes the payer chargeable later.
+// approve must come first: it is what makes the reader chargeable later.
 const ixs = [
-  pay.approveChecked(payerAta, mint, payer, site, limit, 6),
-  pay.openContract(site, payer, payerAta, limit),
+  pay.approveChecked(readerAta, mint, reader, site, limit, 6),
+  pay.openMeter(site, reader, readerAta, limit),
 ];
 
 // or, the same pair in the right order:
-const same = pay.approveAndOpen(payerAta, mint, payer, site, limit, 6);
+const same = pay.approveAndOpen(readerAta, mint, reader, site, limit, 6);
 ```
 
 That match is an agreement neither package declares -- this crate depends on no
@@ -117,7 +117,7 @@ await init({ module_or_path: await readFile(wasmPath) });
 
 const pay = new PayOnChain();
 const ix = pay.meterAndSettle(
-  site, authority, payer, payerAta, treasury, mint, views);
+  site, authority, reader, readerAta, treasury, mint, items);
 ```
 
 Do that once at startup rather than per request. `init` returns early if the
@@ -127,7 +127,7 @@ The object form matters: passing the bytes positionally still works and warns
 that it is deprecated.
 
 What a server actually reaches for is `meterAndSettle` and `initializeSite`,
-the decoders, preflight, and `cause`. The payer-signed builders ship in the
+the decoders, preflight, and `cause`. The reader-signed builders ship in the
 same bundle and are not yours to call -- those are signed in a browser by a
 wallet adapter, whatever the server runs.
 
@@ -182,8 +182,8 @@ if (!pay.ownsMint(mintAccount.owner)) { /* wrong token program */ }
 The program id has no equivalent check. Confirming a deployment exists needs a
 network, and this crate does not have one.
 
-The payer's wallet address is the only thing the library needs to identify a
-contract. Where that address came from -- a login, an SSO session, a wallet
+The reader's wallet address is the only thing the library needs to identify a
+meter. Where that address came from -- a login, an SSO session, a wallet
 sign-in -- is the site's business, and this crate has no opinion about it. See
 `SPEC.md` §4.
 
@@ -201,28 +201,28 @@ crate is a pure function of its arguments.
 
 ## Four things to know
 
-**The approve must precede the program instruction.** `open_contract` and
-`renew_contract` both verify on chain that the payer's token account names the
-contract PDA as delegate for the full limit. They fail rather than trust the
+**The approve must precede the program instruction.** `open_meter` and
+`renew_meter` both verify on chain that the reader's token account names the
+meter PDA as delegate for the full limit. They fail rather than trust the
 client to have done it.
 
 **A token account has exactly one delegate.** `approve` replaces rather than
 adds. That is the SPL account layout, identical under Token-2022, and not
-something this program chose. A payer therefore holds one active contract per
+something this program chose. A reader therefore holds one active meter per
 token account, and a second site's `approve` silently repoints the delegate --
 the first site's next settle then fails inside the token program, at the
-transfer, rather than at `open_contract` where the delegate is checked. The
+transfer, rather than at `open_meter` where the delegate is checked. The
 limit is per token account and not per wallet, and that difference is the whole
 answer to the question below.
 
-**The limit is trust, not pacing.** `meter_and_settle` takes a `page_views`
-count and is signed by the site authority alone. The payer is not present and
+**The limit is trust, not pacing.** `meter_and_settle` takes an `items`
+count and is signed by the site authority alone. The reader is not present and
 does not approve each charge. Nothing bounds that count except
 `used + charge <= limit`, so a site can draw straight to the limit in a single
 instruction whenever it likes.
 
-The limit is therefore the payer's exposure to the site, not a budget that
-paces their reading. A site explaining the limit to a payer should say so
+The limit is therefore the reader's exposure to the site, not a budget that
+paces their reading. A site explaining the limit to a reader should say so
 plainly, and should expect the honest number to be small.
 
 **Transaction logs are yours to filter.** This crate does not read or parse
@@ -232,11 +232,11 @@ the numeric error code alone does not say which program raised it, so
 program are told apart by their context in the logs, not by their numbers.
 
 Handling that is the integrator's job, and it comes with an exposure worth
-naming. A transaction's logs and its account list carry the payer's wallet
+naming. A transaction's logs and its account list carry the reader's wallet
 address, and the program's `emit!` events carry amounts -- `used`, `paid`,
 `transferred` -- as base64 `Program data:` lines that anyone can decode. None
 of it is secret; it is all on chain already. But raking raw logs into
-application logs, an error tracker, or an analytics pipeline copies payer
+application logs, an error tracker, or an analytics pipeline copies reader
 wallet addresses and spending history into systems that were never scoped to
 hold them, and it does so on a site that may well have adopted this design to
 avoid exactly that kind of baggage.
@@ -244,43 +244,43 @@ avoid exactly that kind of baggage.
 Extract the error code, discard the rest, and think before forwarding raw
 transaction logs to a third-party service.
 
-## Can a payer be metered by more than one site at once?
+## Can a reader be metered by more than one site at once?
 
 Yes. It is the first thing anyone evaluating this asks, and the answer lives in
 the account constraints rather than in the prose, so it is worth stating here.
 
-Nothing in this program requires the associated token account. `open_contract`,
-`renew_contract` and `meter_and_settle` each constrain `payer_token_account` by
+Nothing in this program requires the associated token account. `open_meter`,
+`renew_meter` and `meter_and_settle` each constrain `reader_token_account` by
 exactly two things:
 
 ```rust
-constraint = payer_token_account.owner == payer.key(),
-constraint = payer_token_account.mint  == site.mint,
+constraint = reader_token_account.owner == reader.key(),
+constraint = reader_token_account.mint  == site.mint,
 ```
 
-Any token account the payer owns for the site's mint is acceptable, and a
+Any token account the reader owns for the site's mint is acceptable, and a
 wallet may own arbitrarily many token accounts for one mint -- the ATA is
 merely the canonical one. So one token account per site gives one delegate per
-site, and a payer can hold as many concurrent contracts as they have token
-accounts. `Contract` does not record which account was used, either, so a
-contract is not bound to one: any account of the payer's, for the site's mint,
-that delegates to the contract PDA will settle.
+site, and a reader can hold as many concurrent meters as they have token
+accounts. `Meter` does not record which account was used, either, so a
+meter is not bound to one: any account of the reader's, for the site's mint,
+that delegates to the meter PDA will settle.
 
 What that costs, stated so nobody discovers it later:
 
 - **Rent.** A plain SPL token account is 165 bytes, roughly 0.002 SOL,
   recoverable on close. Token-2022 accounts carrying extensions are larger.
-- **Split balances.** Balance is per account, not per wallet, so the payer
+- **Split balances.** Balance is per account, not per wallet, so the reader
   decides in advance how much to park with each site. That is a second
   budgeting decision on top of the limit, and a worse one, because most wallet
   interfaces do not show it.
 - **Wallet support.** Wallets surface the ATA. Auxiliary token accounts for the
   same mint are second-class nearly everywhere, and creating and funding one is
   not a viable onboarding step for an ordinary reader today.
-- **A second thing for the site to store.** The payer's wallet address is the
+- **A second thing for the site to store.** The reader's wallet address is the
   only input this library needs *while everyone uses the ATA*. A site that
-  supports auxiliary accounts must also store which token account each payer
-  uses, because `meter_and_settle` takes it as an account and the contract does
+  supports auxiliary accounts must also store which token account each reader
+  uses, because `meter_and_settle` takes it as an account and the meter does
   not record it.
 
 So the honest summary is that the constraint is per token account rather than
@@ -290,15 +290,15 @@ over-sells, the second alone is the objection.
 
 Removing the friction instead of routing around it would mean changing the
 design. The two shapes that would are worth naming, so that the current one is
-visibly a choice rather than an oversight. A **per-payer delegate PDA**, seeded
-`[b"delegate", payer]` instead of being the per-site contract PDA, would let a
-single approval on the payer's ATA cover every site on the deployment, each
-site still bounded on chain by its own `Contract.limit` -- at the cost of a
+visibly a choice rather than an oversight. A **per-reader delegate PDA**, seeded
+`[b"delegate", reader]` instead of being the per-site meter PDA, would let a
+single approval on the reader's ATA cover every site on the deployment, each
+site still bounded on chain by its own `Meter.limit` -- at the cost of a
 shared allowance, so a site that draws hard leaves less for the others, and the
-payer's total exposure becomes the allowance rather than the sum of the limits
-they agreed to. Or a **per-site escrow** the payer tops up, which removes the
+reader's total exposure becomes the allowance rather than the sum of the limits
+they agreed to. Or a **per-site escrow** the reader tops up, which removes the
 delegate question entirely and gives up the property the whole design rests on:
-that the money stays in the payer's wallet until it is spent.
+that the money stays in the reader's wallet until it is spent.
 
 ## Publishing
 

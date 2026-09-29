@@ -24,7 +24,7 @@ site needs to know is identity.
 **`is_clear()` inherits the fault, and that is the sharp end.** It folds
 `delegate_present` in (`error.rs:190`, `Shortfall.php:46`) and is documented
 as *"nothing on this account would stop a transfer of the amount asked
-about."* For a reader whose delegate is another site's contract, it returns
+about."* For a reader whose delegate is another site's meter, it returns
 **true**, and the transfer then fails inside SPL's `transfer_checked` with
 `OwnerMismatch` (4) rather than `InsufficientFunds` (1).
 
@@ -33,10 +33,10 @@ to zero, and an explicit revoke. Replacement by another `approve` is a third,
 and it is the only one that leaves a delegate in place.
 
 **Evidence.** Newsprint shipped this bug, by trusting the field. It was
-repaired on 2026-09-23 by comparing the field with the site's own contract PDA
+repaired on 2026-09-23 by comparing the field with the site's own meter PDA
 — `PayerState::delegateIsContract()`, covered by `PayerStateTest` and
 `DelegateWiringTest` — and three screens now act on the answer: the set-meter
-screen warns before the wallet dialog, a close sends `close_contract` alone
+screen warns before the wallet dialog, a close sends `close_meter` alone
 when the delegate is not the site's, and a refusal says whether the field is
 empty or names somebody else.
 
@@ -64,10 +64,10 @@ minimum-limit paragraph — where the program in fact *requires*
 and the wrap-up paragraph.
 
 The third was wrong about more than the boundary. It had the wrap-up screen
-collecting the residue at close, where `close_contract` emits
+collecting the residue at close, where `close_meter` emits
 `Closed { forgiven }` and moves nothing. Discarding the residue is a decision:
 collecting at a close is the least likely settle to succeed, so a close
-carrying a transfer could fail and leave the payer unable to leave. The README
+carrying a transfer could fail and leave the reader unable to leave. The README
 now records the decision and its reason, and
 `pay-on-chain/tests/src/test_metering.rs` already asserted the behaviour —
 *"residue below the threshold is forgiven, not collected"*.
@@ -108,9 +108,9 @@ The program emits three events
 (`pay-on-chain/programs/pay-on-chain/src/lib.rs`, lines 315–335):
 
 ```
-Metered { contract, page_views, used, paid, transferred }
-Renewed { contract, limit, carried }
-Closed  { contract, forgiven }
+Metered { meter, items, used, paid, transferred }
+Renewed { meter, limit, carried }
+Closed  { meter, forgiven }
 ```
 
 **Neither client decodes them.** There is no discriminator handling and no
@@ -134,16 +134,16 @@ The note owed said: *`php-client`'s readers take more than they need — a
 reader that accepts decoded state in order to derive an address it could
 derive from configuration teaches integrators to serialise two round trips.*
 
-**Checked today: no such reader exists here.** `Pda::contractAddress(string
-$site, string $payer, ?string $programId)` takes addresses. `Preflight`'s
-methods take `Site` and `Contract` because they are predicates over those
+**Checked today: no such reader exists here.** `Pda::meterAddress(string
+$site, string $reader, ?string $programId)` takes addresses. `Preflight`'s
+methods take `Site` and `Meter` because they are predicates over those
 values, which is not the same thing. The class that over-took was Newsprint's
 own `PayerReader::read(string $wallet, SiteState $state)`, replaced on
 2026-09-10. **The item was owed to the wrong repository.**
 
 What does survive is a documentation gap rather than a defect. Nothing in the
-read path says that a site's two reads are **independent**: the contract PDA
-derives from the site *address* and the payer's token account from the *mint*,
+read path says that a site's two reads are **independent**: the meter PDA
+derives from the site *address* and the reader's token account from the *mint*,
 both of which a site knows from its own configuration, so one
 `getMultipleAccounts` serves a whole metered request. Newsprint ran those two
 reads in sequence for five days because a function signature implied a

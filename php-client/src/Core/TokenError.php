@@ -11,7 +11,7 @@ namespace SolPay\Core;
 enum TokenError: int
 {
     /**
-     * Code 1. Raised both when the payer's balance is too low *and* when the
+     * Code 1. Raised both when the reader's balance is too low *and* when the
      * delegated allowance is too low, which is why {@see Shortfall} exists.
      */
     case InsufficientFunds = 1;

@@ -124,13 +124,13 @@ const pay = new wasm.PayOnChain(v.program_id);
 // `close_and_revoke` pairs its two instructions in the other order.
 const ms = v.meter_and_settle;
 const a = ms.accounts.map((x) => x.pubkey);
-const [site, authority, payer, payerAta, treasury, mint] = [a[0], a[1], a[2], a[4], a[5], a[6]];
+const [site, authority, reader, readerAta, treasury, mint] = [a[0], a[1], a[2], a[4], a[5], a[6]];
 
 const groups = {
-  approveAndOpen: pay.approveAndOpen(payerAta, mint, payer, site, 1_000_000n, 6),
-  approveAndRenew: pay.approveAndRenew(payerAta, mint, payer, site, 2_000_000n, 6),
-  closeAndRevoke: pay.closeAndRevoke(payerAta, payer, site),
-  meterAndSettle: [pay.meterAndSettle(site, authority, payer, payerAta, treasury, mint, ms.page_views)],
+  approveAndOpen: pay.approveAndOpen(readerAta, mint, reader, site, 1_000_000n, 6),
+  approveAndRenew: pay.approveAndRenew(readerAta, mint, reader, site, 2_000_000n, 6),
+  closeAndRevoke: pay.closeAndRevoke(readerAta, reader, site),
+  meterAndSettle: [pay.meterAndSettle(site, authority, reader, readerAta, treasury, mint, ms.items)],
 };
 
 const wellFormed = (ix) =>

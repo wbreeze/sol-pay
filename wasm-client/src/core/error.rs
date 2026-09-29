@@ -22,7 +22,7 @@ use super::state::TokenAccount;
 pub enum PayError {
     LimitBelowMinimum,
     MinimumBelowThreshold,
-    ZeroPagePrice,
+    ZeroItemPrice,
     LimitReached,
     DelegateNotSet,
     DelegateMismatch,
@@ -40,7 +40,7 @@ impl PayError {
         Some(match code.checked_sub(ANCHOR_ERROR_BASE)? {
             0 => LimitBelowMinimum,
             1 => MinimumBelowThreshold,
-            2 => ZeroPagePrice,
+            2 => ZeroItemPrice,
             3 => LimitReached,
             4 => DelegateNotSet,
             5 => DelegateMismatch,
@@ -60,10 +60,10 @@ impl PayError {
         match self {
             LimitBelowMinimum => "Limit is below the site minimum",
             MinimumBelowThreshold => "Site minimum limit must exceed the collection threshold",
-            ZeroPagePrice => "Page price must be greater than zero",
+            ZeroItemPrice => "Item price must be greater than zero",
             LimitReached => "Charge would carry usage past the authorized limit",
-            DelegateNotSet => "Payer token account names no delegate",
-            DelegateMismatch => "Payer token account delegates a different authority",
+            DelegateNotSet => "Reader token account names no delegate",
+            DelegateMismatch => "Reader token account delegates a different authority",
             DelegateAllowanceTooLow => "Delegated allowance does not cover the outstanding limit",
             LimitBelowUsage => "New limit does not cover usage already accrued",
             MathOverflow => "Arithmetic overflow",
@@ -75,7 +75,7 @@ impl PayError {
 /// naming codes sol-pay cannot cause would invite guessing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenError {
-    /// Code 1. Raised both when the payer's balance is too low *and* when the
+    /// Code 1. Raised both when the reader's balance is too low *and* when the
     /// delegated allowance is too low, which is why [`diagnose`] exists.
     InsufficientFunds,
     /// Code 3. The token account is for a different mint than the site's.
@@ -167,7 +167,7 @@ pub fn cause(program: &Pubkey, code: u32) -> Cause {
     Program::default().cause(program, code)
 }
 
-/// Which constraint on the payer's token account is short, and by how much.
+/// Which constraint on the reader's token account is short, and by how much.
 ///
 /// A struct rather than a verdict, because both can be short at once and
 /// because the response differs: a low balance means top up, a low allowance
@@ -191,7 +191,7 @@ impl Shortfall {
     }
 }
 
-/// Read the payer's token account and say what would stop a settle of
+/// Read the reader's token account and say what would stop a settle of
 /// `unpaid`. A read, not a guess: neither shortfall is inferable from the
 /// error code, because SPL reports both as `InsufficientFunds`.
 pub fn diagnose(account: &TokenAccount, unpaid: u64) -> Shortfall {

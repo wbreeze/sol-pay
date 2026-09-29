@@ -21,10 +21,10 @@ const LIMIT: u64 = 500_000;
 /// only be valid pubkeys.
 struct Fixture {
     authority: Pubkey,
-    payer: Pubkey,
+    reader: Pubkey,
     mint: Pubkey,
     treasury: Pubkey,
-    payer_ata: Pubkey,
+    reader_ata: Pubkey,
     site: Pubkey,
 }
 
@@ -34,16 +34,16 @@ impl Fixture {
         let site = pda::site_address(&authority).0;
         Fixture {
             authority,
-            payer: Pubkey::new_unique(),
+            reader: Pubkey::new_unique(),
             mint: Pubkey::new_unique(),
             treasury: Pubkey::new_unique(),
-            payer_ata: Pubkey::new_unique(),
+            reader_ata: Pubkey::new_unique(),
             site,
         }
     }
 
-    fn contract(&self) -> Pubkey {
-        pda::contract_address(&self.site, &self.payer).0
+    fn meter(&self) -> Pubkey {
+        pda::meter_address(&self.site, &self.reader).0
     }
 }
 
@@ -136,12 +136,12 @@ fn client_derives_the_same_addresses() {
         Pubkey::find_program_address(&[b"site", f.authority.as_ref()], &pay_on_chain::ID).0;
     assert_eq!(f.site, anchor_site, "site seeds");
 
-    let anchor_contract = Pubkey::find_program_address(
-        &[b"contract", f.site.as_ref(), f.payer.as_ref()],
+    let anchor_meter = Pubkey::find_program_address(
+        &[b"meter", f.site.as_ref(), f.reader.as_ref()],
         &pay_on_chain::ID,
     )
     .0;
-    assert_eq!(f.contract(), anchor_contract, "contract seeds");
+    assert_eq!(f.meter(), anchor_meter, "meter seeds");
 }
 
 #[test]
@@ -158,7 +158,7 @@ fn initialize_site_matches() {
         }
         .to_account_metas(None),
         data: pay_on_chain::instruction::InitializeSite {
-            page_price: 1_000,
+            item_price: 1_000,
             collection_threshold: 50_000,
             min_limit: 200_000,
         }
@@ -176,22 +176,22 @@ fn initialize_site_matches() {
 }
 
 #[test]
-fn open_contract_matches() {
+fn open_meter_matches() {
     let f = Fixture::new();
     let anchor = Instruction {
         program_id: pay_on_chain::ID,
-        accounts: pay_on_chain::accounts::OpenContract {
-            payer: f.payer,
+        accounts: pay_on_chain::accounts::OpenMeter {
+            reader: f.reader,
             site: f.site,
-            contract: f.contract(),
-            payer_token_account: f.payer_ata,
+            meter: f.meter(),
+            reader_token_account: f.reader_ata,
             system_program: system_program::ID,
         }
         .to_account_metas(None),
-        data: pay_on_chain::instruction::OpenContract { limit: LIMIT }.data(),
+        data: pay_on_chain::instruction::OpenMeter { limit: LIMIT }.data(),
     };
-    let c = client::open_contract(&f.site, &f.payer, &f.payer_ata, LIMIT);
-    assert_same("open_contract", &c, &anchor);
+    let c = client::open_meter(&f.site, &f.reader, &f.reader_ata, LIMIT);
+    assert_same("open_meter", &c, &anchor);
 }
 
 #[test]
@@ -202,21 +202,21 @@ fn meter_and_settle_matches() {
         accounts: pay_on_chain::accounts::MeterAndSettle {
             site: f.site,
             authority: f.authority,
-            payer: f.payer,
-            contract: f.contract(),
-            payer_token_account: f.payer_ata,
+            reader: f.reader,
+            meter: f.meter(),
+            reader_token_account: f.reader_ata,
             treasury: f.treasury,
             mint: f.mint,
             token_program: spl_token::ID,
         }
         .to_account_metas(None),
-        data: pay_on_chain::instruction::MeterAndSettle { page_views: 7 }.data(),
+        data: pay_on_chain::instruction::MeterAndSettle { items: 7 }.data(),
     };
     let c = client::meter_and_settle(
         &f.site,
         &f.authority,
-        &f.payer,
-        &f.payer_ata,
+        &f.reader,
+        &f.reader_ata,
         &f.treasury,
         &f.mint,
         7,
@@ -225,39 +225,39 @@ fn meter_and_settle_matches() {
 }
 
 #[test]
-fn renew_contract_matches() {
+fn renew_meter_matches() {
     let f = Fixture::new();
     let anchor = Instruction {
         program_id: pay_on_chain::ID,
-        accounts: pay_on_chain::accounts::RenewContract {
-            payer: f.payer,
+        accounts: pay_on_chain::accounts::RenewMeter {
+            reader: f.reader,
             site: f.site,
-            contract: f.contract(),
-            payer_token_account: f.payer_ata,
+            meter: f.meter(),
+            reader_token_account: f.reader_ata,
             system_program: system_program::ID,
         }
         .to_account_metas(None),
-        data: pay_on_chain::instruction::RenewContract { new_limit: LIMIT }.data(),
+        data: pay_on_chain::instruction::RenewMeter { new_limit: LIMIT }.data(),
     };
-    let c = client::renew_contract(&f.site, &f.payer, &f.payer_ata, LIMIT);
-    assert_same("renew_contract", &c, &anchor);
+    let c = client::renew_meter(&f.site, &f.reader, &f.reader_ata, LIMIT);
+    assert_same("renew_meter", &c, &anchor);
 }
 
 #[test]
-fn close_contract_matches() {
+fn close_meter_matches() {
     let f = Fixture::new();
     let anchor = Instruction {
         program_id: pay_on_chain::ID,
-        accounts: pay_on_chain::accounts::CloseContract {
-            payer: f.payer,
+        accounts: pay_on_chain::accounts::CloseMeter {
+            reader: f.reader,
             site: f.site,
-            contract: f.contract(),
+            meter: f.meter(),
         }
         .to_account_metas(None),
-        data: pay_on_chain::instruction::CloseContract {}.data(),
+        data: pay_on_chain::instruction::CloseMeter {}.data(),
     };
-    let c = client::close_contract(&f.site, &f.payer);
-    assert_same("close_contract", &c, &anchor);
+    let c = client::close_meter(&f.site, &f.reader);
+    assert_same("close_meter", &c, &anchor);
 }
 
 /// The client hand-encodes the SPL Token instructions rather than depending on
@@ -269,20 +269,20 @@ fn hand_rolled_spl_instructions_match_spl_token() {
 
     let theirs = spl_token::instruction::approve_checked(
         &spl_token::ID,
-        &f.payer_ata,
+        &f.reader_ata,
         &f.mint,
-        &f.contract(),
-        &f.payer,
+        &f.meter(),
+        &f.reader,
         &[],
         LIMIT,
         DECIMALS,
     )
     .unwrap();
-    let ours = client::approve_checked(&f.payer_ata, &f.mint, &f.payer, &f.site, LIMIT, DECIMALS);
+    let ours = client::approve_checked(&f.reader_ata, &f.mint, &f.reader, &f.site, LIMIT, DECIMALS);
     assert_same("approve_checked", &ours, &theirs);
 
-    let theirs = spl_token::instruction::revoke(&spl_token::ID, &f.payer_ata, &f.payer, &[]).unwrap();
-    let ours = client::revoke(&f.payer_ata, &f.payer);
+    let theirs = spl_token::instruction::revoke(&spl_token::ID, &f.reader_ata, &f.reader, &[]).unwrap();
+    let ours = client::revoke(&f.reader_ata, &f.reader);
     assert_same("revoke", &ours, &theirs);
 }
 
@@ -303,9 +303,9 @@ fn client_account_sizes_match_the_program() {
         "Site length"
     );
     assert_eq!(
-        client_state::CONTRACT_LEN,
-        8 + pay_on_chain::state::Contract::INIT_SPACE,
-        "Contract length"
+        client_state::METER_LEN,
+        8 + pay_on_chain::state::Meter::INIT_SPACE,
+        "Meter length"
     );
 }
 
@@ -320,7 +320,7 @@ fn client_decodes_what_anchor_serializes() {
         authority: f.authority,
         mint: f.mint,
         treasury: f.treasury,
-        page_price: 10_000,
+        item_price: 10_000,
         collection_threshold: 250_000,
         min_limit: 500_000,
         bump: 253,
@@ -333,43 +333,43 @@ fn client_decodes_what_anchor_serializes() {
     assert_eq!(decoded.authority, site.authority);
     assert_eq!(decoded.mint, site.mint);
     assert_eq!(decoded.treasury, site.treasury);
-    assert_eq!(decoded.page_price, site.page_price);
+    assert_eq!(decoded.item_price, site.item_price);
     assert_eq!(decoded.collection_threshold, site.collection_threshold);
     assert_eq!(decoded.min_limit, site.min_limit);
     assert_eq!(decoded.bump, site.bump);
 
-    let contract = pay_on_chain::state::Contract {
+    let meter = pay_on_chain::state::Meter {
         site: f.site,
-        payer: f.payer,
+        reader: f.reader,
         limit: LIMIT,
         used: 120_000,
         paid: 100_000,
         bump: 251,
     };
     let mut bytes = Vec::new();
-    contract.try_serialize(&mut bytes).unwrap();
+    meter.try_serialize(&mut bytes).unwrap();
     assert_eq!(
         bytes.len(),
-        client_state::CONTRACT_LEN,
-        "serialized Contract length"
+        client_state::METER_LEN,
+        "serialized Meter length"
     );
 
-    let decoded = client_state::Contract::decode(&bytes).expect("client decodes Contract");
-    assert_eq!(decoded.site, contract.site);
-    assert_eq!(decoded.payer, contract.payer);
-    assert_eq!(decoded.limit, contract.limit);
-    assert_eq!(decoded.used, contract.used);
-    assert_eq!(decoded.paid, contract.paid);
-    assert_eq!(decoded.bump, contract.bump);
+    let decoded = client_state::Meter::decode(&bytes).expect("client decodes Meter");
+    assert_eq!(decoded.site, meter.site);
+    assert_eq!(decoded.reader, meter.reader);
+    assert_eq!(decoded.limit, meter.limit);
+    assert_eq!(decoded.used, meter.used);
+    assert_eq!(decoded.paid, meter.paid);
+    assert_eq!(decoded.bump, meter.bump);
 
     // The derived helpers must agree with the program's own.
-    assert_eq!(decoded.unpaid(), contract.unpaid());
-    assert_eq!(decoded.outstanding(), contract.outstanding());
+    assert_eq!(decoded.unpaid(), meter.unpaid());
+    assert_eq!(decoded.outstanding(), meter.outstanding());
 }
 
 /// An account of the right size but the wrong type must be refused, not
-/// reinterpreted. Site and Contract differ in length, so the case worth
-/// checking is a Site's bytes with a Contract's discriminator swapped in.
+/// reinterpreted. Site and Meter differ in length, so the case worth
+/// checking is a Site's bytes with a Meter's discriminator swapped in.
 #[test]
 fn client_refuses_an_account_of_another_type() {
     let f = Fixture::new();
@@ -377,7 +377,7 @@ fn client_refuses_an_account_of_another_type() {
         authority: f.authority,
         mint: f.mint,
         treasury: f.treasury,
-        page_price: 1,
+        item_price: 1,
         collection_threshold: 2,
         min_limit: 3,
         bump: 250,
@@ -386,7 +386,7 @@ fn client_refuses_an_account_of_another_type() {
     site.try_serialize(&mut bytes).unwrap();
 
     assert!(
-        client_state::Contract::decode(&bytes).is_err(),
-        "a Site must not decode as a Contract"
+        client_state::Meter::decode(&bytes).is_err(),
+        "a Site must not decode as a Meter"
     );
 }

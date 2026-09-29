@@ -31,9 +31,9 @@ closing still forgives the residue.
 
 **Names changed 2026-09-29, §4.11.** The vault is a *fund*, the contract a
 *meter*, its owner the *reader*, and what a meter counts an *item* rather than
-a page view. The rename is applied throughout this document; the program and
-both ports follow it, and the README and diagram catch up with the rest of
-the redesign.
+a page view. The rename is applied across the repository -- program, both
+ports, scripts, README and diagram -- as a change of its own, ahead of the
+redesign and separate from it, so that neither diff hides the other.
 
 ## 1. What this is
 
@@ -839,7 +839,8 @@ likely to be wanted.
 ### 4.11 Names *(redesign)*
 
 Decided 2026-09-29 and applied to this document in the same change; the
-program and both ports follow in the implementation. Renaming before the
+rest of the repository follows in a rename-only change of its own, before
+the redesign. Renaming before the
 program changes costs one pass, and afterwards would cost every integrator
 the words they had learned. The rule is **no translation**: the word a reader
 sees, the word this document uses and the identifier in code are one word.

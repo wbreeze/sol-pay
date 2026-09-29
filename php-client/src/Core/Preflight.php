@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace SolPay\Core;
 
 /**
- * Will this succeed, and what does the payer still have room for? Every
+ * Will this succeed, and what does the reader still have room for? Every
  * method here mirrors one check the program makes, so a site can ask before
  * it spends a transaction fee finding out. They report facts, not
  * instructions: nothing here decides what to render, redirect to, or block.
@@ -27,13 +27,13 @@ namespace SolPay\Core;
  */
 final class Preflight
 {
-    /** What `pageViews` costs at this site's price. Null if it overflows. */
-    public static function charge(Site $site, int $pageViews): ?int
+    /** What `items` costs at this site's price. Null if it overflows. */
+    public static function charge(Site $site, int $items): ?int
     {
-        if ($site->pagePrice === 0 || $pageViews === 0) {
+        if ($site->itemPrice === 0 || $items === 0) {
             return 0;
         }
-        $product = $site->pagePrice * $pageViews;
+        $product = $site->itemPrice * $items;
         if (!is_int($product)) {
             return null;
         }
@@ -41,18 +41,18 @@ final class Preflight
     }
 
     /** Mirrors `require!(new_used <= limit, LimitReached)`. */
-    public static function canMeter(Contract $contract, Site $site, int $pageViews): ?Blocked
+    public static function canMeter(Meter $meter, Site $site, int $items): ?Blocked
     {
-        $charge = self::charge($site, $pageViews);
+        $charge = self::charge($site, $items);
         if ($charge === null) {
             return Blocked::overflow();
         }
-        $newUsed = $contract->used + $charge;
+        $newUsed = $meter->used + $charge;
         if (!is_int($newUsed)) {
             return Blocked::overflow();
         }
-        if ($newUsed > $contract->limit) {
-            return Blocked::limitReached($newUsed - $contract->limit);
+        if ($newUsed > $meter->limit) {
+            return Blocked::limitReached($newUsed - $meter->limit);
         }
         return null;
     }
@@ -60,50 +60,50 @@ final class Preflight
     /**
      * Whether this call would also move money, rather than only accruing
      * usage. Worth knowing because a settling call touches the treasury and
-     * the payer's token account, so it is the one that can fail on a low
+     * the reader's token account, so it is the one that can fail on a low
      * balance.
      */
-    public static function willSettle(Contract $contract, Site $site, int $pageViews): bool
+    public static function willSettle(Meter $meter, Site $site, int $items): bool
     {
-        $charge = self::charge($site, $pageViews);
+        $charge = self::charge($site, $items);
         if ($charge === null) {
             return false;
         }
-        $newUsed = $contract->used + $charge;
+        $newUsed = $meter->used + $charge;
         if (!is_int($newUsed)) {
             return false;
         }
-        return max(0, $newUsed - $contract->paid) >= $site->collectionThreshold;
+        return max(0, $newUsed - $meter->paid) >= $site->collectionThreshold;
     }
 
-    /** How many more views fit under the limit. */
-    public static function viewsRemaining(Contract $contract, Site $site): int
+    /** How many more items fit under the limit. */
+    public static function itemsRemaining(Meter $meter, Site $site): int
     {
-        if ($site->pagePrice === 0) {
+        if ($site->itemPrice === 0) {
             return 0;
         }
-        return intdiv(max(0, $contract->limit - $contract->used), $site->pagePrice);
+        return intdiv(max(0, $meter->limit - $meter->used), $site->itemPrice);
     }
 
     /**
-     * The smallest limit this payer may authorize right now. One function,
+     * The smallest limit this reader may authorize right now. One function,
      * not an open-limit and a renewal-limit pair: the question is identical
      * on both screens -- what is the smallest value I can accept here -- and
-     * $contract carries state the caller already holds, since looking up
-     * the contract either produced one or did not.
+     * $meter carries state the caller already holds, since looking up
+     * the meter either produced one or did not.
      *
      * Renewal has two requirements at once: at or above the site minimum,
      * and covering usage carried forward. `max` is both, and it degenerates
-     * to the opening rule when there is no contract.
+     * to the opening rule when there is no meter.
      */
-    public static function limitFloor(Site $site, ?Contract $contract): int
+    public static function limitFloor(Site $site, ?Meter $meter): int
     {
-        $carried = $contract?->unpaid() ?? 0;
+        $carried = $meter?->unpaid() ?? 0;
         return max($site->minLimit, $carried);
     }
 
     /**
-     * What the SPL approval must cover for a contract at $limit: the whole
+     * What the SPL approval must cover for a meter at $limit: the whole
      * limit. Nothing is paid against a new limit yet, and the program checks
      * the allowance against it at open and at renew.
      */

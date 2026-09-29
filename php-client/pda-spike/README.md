@@ -175,3 +175,11 @@ Two findings worth carrying into a decision that were not in the spec:
   `25F422A85CCA506A`, `initialize_site` `553480D007E0B24F`, `Site`
   `8FFF340F41A55E31`, `Contract` `AC8A73F27943B71A`. These are computed, and
   the `verify.php` run confirms them against the crate.
+
+---
+
+**Addendum, 2026-09-29.** The account this spike calls a contract is now a
+meter (`wasm-client/SPEC.md` §4.11), seeded `b"meter"` rather than
+`b"contract"`; the `sha256("payer-<i>")` inputs are unchanged. The
+spike is left as it was run, so `php/verify.php` no longer matches the
+vectors `vectors-gen` writes; the finding above does not depend on the seed.

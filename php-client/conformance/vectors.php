@@ -30,7 +30,7 @@ declare(strict_types=1);
 require __DIR__.'/../vendor/autoload.php';
 
 use SolPay\Core\AccountMeta;
-use SolPay\Core\Contract;
+use SolPay\Core\Meter;
 use SolPay\Core\Instruction;
 use SolPay\Core\Ix;
 use SolPay\Core\PayError;
@@ -101,7 +101,7 @@ function whereMessagesDiffer(string $got, string $want, int $keyCount): string
 // as raw bytes, base58 only at the boundary -- which is where this package
 // puts every pubkey anyway.
 $sites = 0;
-$contracts = 0;
+$meters = 0;
 foreach ($v['site'] as $row) {
     $i = $row['i'];
     $authority = \SolPay\Core\Base58::encode(hash('sha256', "authority-$i", true));
@@ -110,15 +110,15 @@ foreach ($v['site'] as $row) {
         ++$sites;
     }
 
-    $payer = \SolPay\Core\Base58::encode(hash('sha256', "payer-$i", true));
-    $contract = Pda::contractAddress($site['address'], $payer, $program->id);
-    $want = $v['contract'][$i];
-    if ($contract['address'] === $want['address'] && $contract['bump'] === $want['bump']) {
-        ++$contracts;
+    $reader = \SolPay\Core\Base58::encode(hash('sha256', "payer-$i", true));
+    $meter = Pda::meterAddress($site['address'], $reader, $program->id);
+    $want = $v['meter'][$i];
+    if ($meter['address'] === $want['address'] && $meter['bump'] === $want['bump']) {
+        ++$meters;
     }
 }
 check('site PDAs', $sites === $v['count'], "$sites/{$v['count']}");
-check('contract PDAs', $contracts === $v['count'], "$contracts/{$v['count']}");
+check('meter PDAs', $meters === $v['count'], "$meters/{$v['count']}");
 
 // Rebuild the instruction from the accounts the vector records, then compare
 // every field of it -- data, order, and both flags. The flags are the half
@@ -133,7 +133,7 @@ $ix = Ix::meterAndSettle(
     $want[4]['pubkey'],
     $want[5]['pubkey'],
     $want[6]['pubkey'],
-    $ms['page_views'],
+    $ms['items'],
 );
 check('meter_and_settle data', bin2hex($ix->data) === $ms['data_hex'], bin2hex($ix->data));
 
@@ -215,19 +215,19 @@ $site = Site::decode((string) hex2bin($sa['data_hex']));
 check('Site::decode', $site->authority === $sa['authority']
     && $site->mint === $sa['mint']
     && $site->treasury === $sa['treasury']
-    && $site->pagePrice === $sa['page_price']
+    && $site->itemPrice === $sa['item_price']
     && $site->collectionThreshold === $sa['collection_threshold']
     && $site->minLimit === $sa['min_limit']
     && $site->bump === $sa['bump']);
 
-$ca = $v['contract_account'];
-$contract = Contract::decode((string) hex2bin($ca['data_hex']));
-check('Contract::decode', $contract->site === $ca['site']
-    && $contract->payer === $ca['payer']
-    && $contract->limit === $ca['limit']
-    && $contract->used === $ca['used']
-    && $contract->paid === $ca['paid']
-    && $contract->bump === $ca['bump']);
+$ca = $v['meter_account'];
+$meter = Meter::decode((string) hex2bin($ca['data_hex']));
+check('Meter::decode', $meter->site === $ca['site']
+    && $meter->reader === $ca['reader']
+    && $meter->limit === $ca['limit']
+    && $meter->used === $ca['used']
+    && $meter->paid === $ca['paid']
+    && $meter->bump === $ca['bump']);
 
 // Anchor's offset is applied by the program, so a variant reordered upstream
 // silently renumbers every error after it.

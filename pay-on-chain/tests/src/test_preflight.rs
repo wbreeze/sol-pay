@@ -14,7 +14,7 @@ use solana_signer::Signer;
 
 use sol_pay_client::core::{
     error as client_error, preflight,
-    state::{Contract as ClientContract, Site as ClientSite, TokenAccount as ClientTokenAccount},
+    state::{Meter as ClientMeter, Site as ClientSite, TokenAccount as ClientTokenAccount},
 };
 
 use crate::harness::*;
@@ -24,20 +24,20 @@ const RICH: u64 = 10_000_000;
 
 /// The client's view of the on-chain accounts, read the way an integrator
 /// would: fetch the account, decode it, ask the predicate.
-fn client_view(env: &Env) -> (ClientSite, ClientContract) {
+fn client_view(env: &Env) -> (ClientSite, ClientMeter) {
     let site = env.svm.get_account(&env.site).expect("site account");
-    let contract = env
+    let meter = env
         .svm
-        .get_account(&contract_pda(&env.site, &env.payer.pubkey()))
-        .expect("contract account");
+        .get_account(&meter_pda(&env.site, &env.reader.pubkey()))
+        .expect("meter account");
     (
         ClientSite::decode(&site.data).expect("client decodes site"),
-        ClientContract::decode(&contract.data).expect("client decodes contract"),
+        ClientMeter::decode(&meter.data).expect("client decodes meter"),
     )
 }
 
 fn client_token_account(env: &Env) -> ClientTokenAccount {
-    let acct = env.svm.get_account(&env.payer_ata).expect("token account");
+    let acct = env.svm.get_account(&env.reader_ata).expect("token account");
     ClientTokenAccount::decode(&acct.data).expect("client decodes token account")
 }
 
@@ -46,24 +46,24 @@ fn can_meter_blocks_exactly_when_the_program_refuses() {
     let mut env = Env::new(RICH);
     env.open(LIMIT).unwrap();
 
-    // Spend up to one view short of the limit.
-    let views_under_limit = (LIMIT / PAGE_PRICE) as u32 - 1;
-    for _ in 0..views_under_limit {
+    // Spend up to one item short of the limit.
+    let items_under_limit = (LIMIT / ITEM_PRICE) as u32 - 1;
+    for _ in 0..items_under_limit {
         env.meter(1).unwrap();
     }
 
-    let (site, contract) = client_view(&env);
-    assert_eq!(preflight::views_remaining(&contract, &site), 1);
-    assert_eq!(preflight::can_meter(&contract, &site, 1), Ok(()));
+    let (site, meter) = client_view(&env);
+    assert_eq!(preflight::items_remaining(&meter, &site), 1);
+    assert_eq!(preflight::can_meter(&meter, &site, 1), Ok(()));
     env.meter(1).expect("the predicate said this would work");
 
-    // Now the limit is exactly reached, and one more view is over.
-    let (site, contract) = client_view(&env);
-    assert_eq!(preflight::views_remaining(&contract, &site), 0);
+    // Now the limit is exactly reached, and one more item is over.
+    let (site, meter) = client_view(&env);
+    assert_eq!(preflight::items_remaining(&meter, &site), 0);
     assert_eq!(
-        preflight::can_meter(&contract, &site, 1),
+        preflight::can_meter(&meter, &site, 1),
         Err(preflight::Blocked::LimitReached {
-            over: PAGE_PRICE
+            over: ITEM_PRICE
         })
     );
     assert_error(env.meter(1), "LimitReached");
@@ -74,15 +74,15 @@ fn will_settle_predicts_when_money_actually_moves() {
     let mut env = Env::new(RICH);
     env.open(LIMIT).unwrap();
 
-    for _ in 0..(VIEWS_TO_THRESHOLD - 1) {
-        let (site, contract) = client_view(&env);
-        assert!(!preflight::will_settle(&contract, &site, 1));
+    for _ in 0..(ITEMS_TO_THRESHOLD - 1) {
+        let (site, meter) = client_view(&env);
+        assert!(!preflight::will_settle(&meter, &site, 1));
         env.meter(1).unwrap();
         assert_eq!(env.token_balance(&env.treasury), 0, "nothing moved yet");
     }
 
-    let (site, contract) = client_view(&env);
-    assert!(preflight::will_settle(&contract, &site, 1));
+    let (site, meter) = client_view(&env);
+    assert!(preflight::will_settle(&meter, &site, 1));
     env.meter(1).unwrap();
     assert_eq!(
         env.token_balance(&env.treasury),
@@ -97,24 +97,24 @@ fn limit_floor_is_the_smallest_limit_renewal_accepts() {
     env.open(LIMIT).unwrap();
 
     // Settle once, then accrue a residue too small to collect.
-    env.meter(VIEWS_TO_THRESHOLD).unwrap();
+    env.meter(ITEMS_TO_THRESHOLD).unwrap();
     env.meter(3).unwrap();
 
-    let (site, contract) = client_view(&env);
-    let floor = preflight::limit_floor(&site, Some(&contract));
-    assert_eq!(floor, MIN_LIMIT.max(contract.unpaid()));
+    let (site, meter) = client_view(&env);
+    let floor = preflight::limit_floor(&site, Some(&meter));
+    assert_eq!(floor, MIN_LIMIT.max(meter.unpaid()));
 
     // A hair under the floor must be refused by the program.
-    let payer = env.payer.insecure_clone();
+    let reader = env.reader.insecure_clone();
     let ixs = [env.ix_approve(floor - 1), env.ix_renew(floor - 1)];
     assert!(
-        env.send(&ixs, &[&payer], &payer.pubkey()).is_err(),
+        env.send(&ixs, &[&reader], &reader.pubkey()).is_err(),
         "the program must refuse a limit below the floor the client reports"
     );
 
     // The floor itself must be accepted.
     let ixs = [env.ix_approve(floor), env.ix_renew(floor)];
-    env.send(&ixs, &[&payer], &payer.pubkey())
+    env.send(&ixs, &[&reader], &reader.pubkey())
         .expect("the floor itself must be renewable");
 }
 
@@ -139,7 +139,7 @@ fn client_error_codes_match_the_program() {
     let pairs = [
         (C::LimitBelowMinimum, P::LimitBelowMinimum),
         (C::MinimumBelowThreshold, P::MinimumBelowThreshold),
-        (C::ZeroPagePrice, P::ZeroPagePrice),
+        (C::ZeroItemPrice, P::ZeroItemPrice),
         (C::LimitReached, P::LimitReached),
         (C::DelegateNotSet, P::DelegateNotSet),
         (C::DelegateMismatch, P::DelegateMismatch),
@@ -161,7 +161,7 @@ fn client_error_codes_match_the_program() {
 /// The question the docs do not answer, and the reason `diagnose` exists.
 ///
 /// A settle can fail two ways that a site must respond to differently: the
-/// payer's balance is short (top up) or the delegated allowance is short
+/// reader's balance is short (top up) or the delegated allowance is short
 /// (re-authorize). If SPL distinguishes them by code, `diagnose` is redundant.
 #[test]
 fn spl_does_not_distinguish_a_short_balance_from_a_short_allowance() {
@@ -169,7 +169,7 @@ fn spl_does_not_distinguish_a_short_balance_from_a_short_allowance() {
     let mut env = Env::new(THRESHOLD - 1);
     env.open(LIMIT).unwrap();
     let short_balance = env
-        .meter(VIEWS_TO_THRESHOLD)
+        .meter(ITEMS_TO_THRESHOLD)
         .expect_err("a settle larger than the balance must fail");
 
     let d = client_error::diagnose(&client_token_account(&env), THRESHOLD);
@@ -181,11 +181,11 @@ fn spl_does_not_distinguish_a_short_balance_from_a_short_allowance() {
     let mut env = Env::new(RICH);
     env.open(LIMIT).unwrap();
     // Re-approve below what the next settle needs. `approve` replaces.
-    let payer = env.payer.insecure_clone();
-    env.send(&[env.ix_approve(THRESHOLD - 1)], &[&payer], &payer.pubkey())
+    let reader = env.reader.insecure_clone();
+    env.send(&[env.ix_approve(THRESHOLD - 1)], &[&reader], &reader.pubkey())
         .unwrap();
     let short_allowance = env
-        .meter(VIEWS_TO_THRESHOLD)
+        .meter(ITEMS_TO_THRESHOLD)
         .expect_err("a settle larger than the allowance must fail");
 
     let d = client_error::diagnose(&client_token_account(&env), THRESHOLD);
@@ -213,10 +213,10 @@ fn an_allowance_spent_to_zero_clears_the_delegate() {
     env.open(LIMIT).unwrap();
 
     // Approve exactly one settle's worth, then take it.
-    let payer = env.payer.insecure_clone();
-    env.send(&[env.ix_approve(THRESHOLD)], &[&payer], &payer.pubkey())
+    let reader = env.reader.insecure_clone();
+    env.send(&[env.ix_approve(THRESHOLD)], &[&reader], &reader.pubkey())
         .unwrap();
-    env.meter(VIEWS_TO_THRESHOLD).unwrap();
+    env.meter(ITEMS_TO_THRESHOLD).unwrap();
     assert_eq!(env.token_balance(&env.treasury), THRESHOLD);
 
     let account = client_token_account(&env);
@@ -226,7 +226,7 @@ fn an_allowance_spent_to_zero_clears_the_delegate() {
         "SPL clears the delegate when the allowance reaches zero"
     );
 
-    let d = client_error::diagnose(&account, PAGE_PRICE);
+    let d = client_error::diagnose(&account, ITEM_PRICE);
     assert!(!d.delegate_present, "diagnose must report the cleared delegate");
     assert!(!d.is_clear());
 }

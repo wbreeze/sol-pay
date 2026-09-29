@@ -17,7 +17,7 @@ enum PayError: int
 {
     case LimitBelowMinimum = 6000;
     case MinimumBelowThreshold = 6001;
-    case ZeroPagePrice = 6002;
+    case ZeroItemPrice = 6002;
     case LimitReached = 6003;
     case DelegateNotSet = 6004;
     case DelegateMismatch = 6005;
@@ -40,10 +40,10 @@ enum PayError: int
         return match ($this) {
             self::LimitBelowMinimum => 'Limit is below the site minimum',
             self::MinimumBelowThreshold => 'Site minimum limit must exceed the collection threshold',
-            self::ZeroPagePrice => 'Page price must be greater than zero',
+            self::ZeroItemPrice => 'Item price must be greater than zero',
             self::LimitReached => 'Charge would carry usage past the authorized limit',
-            self::DelegateNotSet => 'Payer token account names no delegate',
-            self::DelegateMismatch => 'Payer token account delegates a different authority',
+            self::DelegateNotSet => 'Reader token account names no delegate',
+            self::DelegateMismatch => 'Reader token account delegates a different authority',
             self::DelegateAllowanceTooLow => 'Delegated allowance does not cover the outstanding limit',
             self::LimitBelowUsage => 'New limit does not cover usage already accrued',
             self::MathOverflow => 'Arithmetic overflow',

@@ -109,23 +109,23 @@ diagnostic step's output first.
 ### The chain model
 
 - `Site` PDA, seeds `["site", authority]` — one per site authority, holding
-  `mint`, `treasury`, `page_price`, `collection_threshold`, `min_limit`.
-- `Contract` PDA, seeds `["contract", site, payer]` — per payer per site,
+  `mint`, `treasury`, `item_price`, `collection_threshold`, `min_limit`.
+- `Meter` PDA, seeds `["meter", site, reader]` — per reader per site,
   holding `limit`, `used`, `paid`.
-- The payer SPL-`approve`s the **contract PDA** as delegate for the full limit.
-  `open_contract` and `renew_contract` verify that delegation on chain
+- The reader SPL-`approve`s the **meter PDA** as delegate for the full limit.
+  `open_meter` and `renew_meter` verify that delegation on chain
   (`require_delegate`) rather than trusting the client, so the `approve` must
   come earlier in the same transaction.
-- `meter_and_settle` is signed by the site authority alone, with the payer
-  absent. It adds `page_price * page_views` to `used`, and when the unpaid
+- `meter_and_settle` is signed by the site authority alone, with the reader
+  absent. It adds `item_price * items` to `used`, and when the unpaid
   balance reaches `collection_threshold` it transfers the whole unpaid balance
-  by CPI, signing as the contract PDA. Increment and transfer succeed or fail
+  by CPI, signing as the meter PDA. Increment and transfer succeed or fail
   together.
-- One token account has one delegate, so a payer holds one active contract per
+- One token account has one delegate, so a reader holds one active meter per
   token account.
 
 Two amounts are easy to confuse: the **spending limit** caps `used` and is what
-the payer authorizes; the **collection threshold** is the smallest unpaid
+the reader authorizes; the **collection threshold** is the smallest unpaid
 balance worth a transfer.
 
 ### The client crate
@@ -177,8 +177,8 @@ before changing a dependency.
 
 `php-client/src/Core/` (namespace `SolPay\Core`, PSR-4) covers the server row
 of `wasm-client/SPEC.md` §3's "Two consumers" table — everything a PHP site
-authority signs — and deliberately omits the payer-signed instructions
-(`open_contract`, `renew_contract`, `close_contract`, `approve_checked`,
+authority signs — and deliberately omits the reader-signed instructions
+(`open_meter`, `renew_meter`, `close_meter`, `approve_checked`,
 `revoke`): those are signed by a wallet adapter in the browser regardless of
 what the server runs, so a PHP port gains nothing by having them.
 
@@ -186,7 +186,7 @@ what the server runs, so a PHP port gains nothing by having them.
 | --- | --- |
 | `pda.rs` | `Pda` |
 | `ix.rs` (server-signed subset) | `Ix` |
-| `state.rs` | `Site`, `Contract`, `TokenAccount`, `Mint`, `Reader` (internal) |
+| `state.rs` | `Site`, `Meter`, `TokenAccount`, `Mint`, `ByteReader` (internal) |
 | `preflight.rs` | `Preflight`, `Blocked` |
 | `error.rs` | `PayError`, `TokenError`, `Cause`, `Shortfall` |
 | `units.rs` | `Units` |
@@ -197,7 +197,7 @@ Every public pubkey is a base58 string, matching wasm-client's own JS
 boundary (`wasm-client/README.md`, "addresses cross its boundary as base58
 strings"). PHP has no unsigned 64-bit type, so this package's safe integer
 ceiling is `PHP_INT_MAX` (~9.2e18) rather than `u64::MAX` (~1.8e19) —
-`Reader::u64()`, `Preflight`, and `Units` each document this where it matters;
+`ByteReader::u64()`, `Preflight`, and `Units` each document this where it matters;
 ordinary token amounts never approach either ceiling. Where Rust splits an API
 into methods-on-a-handle plus free functions defaulting to the canonical
 deployment, PHP just takes a `Program` explicitly (see `Ix`/`Program`'s class
@@ -221,8 +221,8 @@ than copied:
 
 - PDA derivation and one `meter_and_settle` instruction, from the published
   `sol-pay-client` crate (crates.io) — checked by `PdaTest`/`IxTest`.
-- One genuine Anchor-serialized `Site` and `Contract` account — built from
-  `pay-on-chain::state::{Site,Contract}` using their own `#[account]`-derived
+- One genuine Anchor-serialized `Site` and `Meter` account — built from
+  `pay-on-chain::state::{Site,Meter}` using their own `#[account]`-derived
   `DISCRIMINATOR` and `AnchorSerialize`, a path dependency on
   `pay-on-chain/programs/pay-on-chain` — checked by `StateTest`.
 - The `PayError` code table, computed as `PayError::<variant> as u32 +
@@ -374,6 +374,12 @@ The two conformance workflows generate vectors from the **published** crate
 rather than from this tree, which is why both also watch `pay-on-chain/programs/`
 -- the generator depends on it by path for genuinely Anchor-serialized account
 bytes and the real error discriminants.
+
+**Temporarily not, from 2026-09-29 until the next `sol-pay-client` release.**
+The rename in `wasm-client/SPEC.md` §4.11 changed the meter's seed and four
+discriminators, so the published 0.1.x no longer matches this tree, and
+`php-client/vectors-gen` depends on `../../wasm-client` by path meanwhile. Its
+`Cargo.toml` says how to switch back; do it in the same change as the publish.
 
 `php-client`'s PHPUnit suite (above) is still run by hand. It answers a
 different question from the conformance job: its expected values are

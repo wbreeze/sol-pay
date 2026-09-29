@@ -32,7 +32,7 @@ declare(strict_types=1);
 
 require __DIR__.'/../vendor/autoload.php';
 
-use SolPay\Core\Contract;
+use SolPay\Core\Meter;
 use SolPay\Core\Preflight;
 use SolPay\Core\Shortfall;
 use SolPay\Core\Site;
@@ -67,9 +67,9 @@ if ($fixture['cases'] === []) {
 foreach ($fixture['cases'] as $case) {
     $name = $case['name'];
     $site = Site::decode((string) hex2bin($case['site_hex']));
-    $contract = Contract::decode((string) hex2bin($case['contract_hex']));
+    $meter = Meter::decode((string) hex2bin($case['meter_hex']));
     $account = TokenAccount::decode((string) hex2bin($case['token_account_hex']));
-    $views = $case['page_views'];
+    $items = $case['items'];
 
     $wrong = [];
     $expect = static function (string $what, $got, $want) use (&$wrong): void {
@@ -78,15 +78,15 @@ foreach ($fixture['cases'] as $case) {
         }
     };
 
-    $expect('charge', Preflight::charge($site, $views), $case['charge']);
-    $expect('will_settle', Preflight::willSettle($contract, $site, $views), $case['will_settle']);
-    $expect('views_remaining', Preflight::viewsRemaining($contract, $site), $case['views_remaining']);
-    $expect('limit_floor', Preflight::limitFloor($site, $contract), $case['limit_floor']);
-    $expect('unpaid', $contract->unpaid(), $case['unpaid']);
+    $expect('charge', Preflight::charge($site, $items), $case['charge']);
+    $expect('will_settle', Preflight::willSettle($meter, $site, $items), $case['will_settle']);
+    $expect('items_remaining', Preflight::itemsRemaining($meter, $site), $case['items_remaining']);
+    $expect('limit_floor', Preflight::limitFloor($site, $meter), $case['limit_floor']);
+    $expect('unpaid', $meter->unpaid(), $case['unpaid']);
 
     // `can_meter` is a value, not an exception: null when the call would go
     // through, otherwise which constraint stopped it and by how much.
-    $blocked = Preflight::canMeter($contract, $site, $views);
+    $blocked = Preflight::canMeter($meter, $site, $items);
     $want = $case['can_meter'];
     if ($want === null && $blocked !== null) {
         $wrong[] = sprintf('can_meter blocked (%s) a call the program accepted', $blocked->kind->name);

@@ -16,6 +16,10 @@ use SolPay\Core\Pda;
  * sha256("payer-0"), the same derivation vectors-gen uses for its first
  * sample, so a fresh regeneration (see pda-spike/README.md) can be diffed
  * against these constants by hand.
+ *
+ * The meter address was recomputed on 2026-09-29, when the seed became
+ * `meter` (SPEC.md §4.11): by this package and by an independent derivation,
+ * and confirmed against the crate by bin/test-php.
  */
 final class PdaTest extends TestCase
 {
@@ -32,13 +36,13 @@ final class PdaTest extends TestCase
         self::assertSame(255, $site['bump']);
     }
 
-    public function testContractAddressMatchesTheRustCrate(): void
+    public function testMeterAddressMatchesTheRustCrate(): void
     {
         $site = Pda::siteAddress(self::seed('authority-0'))['address'];
-        $contract = Pda::contractAddress($site, self::seed('payer-0'));
+        $meter = Pda::meterAddress($site, self::seed('payer-0'));
 
-        self::assertSame('6974nWSDYwkuz4tXmAoqqECR2sP58HL4Ca7wkTdkpsYy', $contract['address']);
-        self::assertSame(255, $contract['bump']);
+        self::assertSame('EvYuJ77oc2LPsdvCK3rvLzaDY2FUsF2xtXW67Wf9ZK4u', $meter['address']);
+        self::assertSame(255, $meter['bump']);
     }
 
     public function testDefaultsToTheCanonicalDeployment(): void

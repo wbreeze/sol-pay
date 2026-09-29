@@ -1,5 +1,5 @@
 //! Test fixture: an in-process SVM with the program loaded, a mint, a funded
-//! payer token account, and a site already configured.
+//! reader token account, and a site already configured.
 //!
 //! Instructions are built from the program's own generated `accounts::` and
 //! `instruction::` types, so a change to an account struct breaks these tests
@@ -19,25 +19,25 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 
-use pay_on_chain::state::Contract;
+use pay_on_chain::state::Meter;
 
 pub const DECIMALS: u8 = 6;
-/// 0.001 USDC per page view.
-pub const PAGE_PRICE: u64 = 1_000;
+/// 0.001 USDC per item.
+pub const ITEM_PRICE: u64 = 1_000;
 /// Collect once 0.05 USDC has accrued.
 pub const THRESHOLD: u64 = 50_000;
 pub const MIN_LIMIT: u64 = 200_000;
-/// Views that fit under the threshold without triggering a settle.
-pub const VIEWS_TO_THRESHOLD: u32 = (THRESHOLD / PAGE_PRICE) as u32;
+/// Items that fit under the threshold without triggering a settle.
+pub const ITEMS_TO_THRESHOLD: u32 = (THRESHOLD / ITEM_PRICE) as u32;
 
 pub struct Env {
     pub svm: LiteSVM,
     pub authority: Keypair,
-    pub payer: Keypair,
+    pub reader: Keypair,
     pub mint: Pubkey,
     pub site: Pubkey,
     pub treasury: Pubkey,
-    pub payer_ata: Pubkey,
+    pub reader_ata: Pubkey,
 }
 
 fn program_so() -> PathBuf {
@@ -89,26 +89,26 @@ pub fn site_pda(authority: &Pubkey) -> Pubkey {
     Pubkey::find_program_address(&[b"site", authority.as_ref()], &pay_on_chain::ID).0
 }
 
-pub fn contract_pda(site: &Pubkey, payer: &Pubkey) -> Pubkey {
+pub fn meter_pda(site: &Pubkey, reader: &Pubkey) -> Pubkey {
     Pubkey::find_program_address(
-        &[b"contract", site.as_ref(), payer.as_ref()],
+        &[b"meter", site.as_ref(), reader.as_ref()],
         &pay_on_chain::ID,
     )
     .0
 }
 
 impl Env {
-    /// `payer_balance` is the payer's token balance, which is what a settle
+    /// `reader_balance` is the reader's token balance, which is what a settle
     /// actually draws on.
-    pub fn new(payer_balance: u64) -> Self {
+    pub fn new(reader_balance: u64) -> Self {
         let mut svm = LiteSVM::new();
         svm.add_program_from_file(pay_on_chain::ID, program_so())
             .expect("run `anchor build` first: target/deploy/pay_on_chain.so is missing");
 
         let authority = Keypair::new();
-        let payer = Keypair::new();
+        let reader = Keypair::new();
         svm.airdrop(&authority.pubkey(), 10_000_000_000).unwrap();
-        svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+        svm.airdrop(&reader.pubkey(), 10_000_000_000).unwrap();
 
         let mint = Pubkey::new_unique();
         svm.set_account(mint, funded(mint_data(&authority.pubkey()), spl_token::ID))
@@ -124,11 +124,11 @@ impl Env {
         )
         .unwrap();
 
-        let payer_ata = Pubkey::new_unique();
+        let reader_ata = Pubkey::new_unique();
         svm.set_account(
-            payer_ata,
+            reader_ata,
             funded(
-                token_account_data(&mint, &payer.pubkey(), payer_balance),
+                token_account_data(&mint, &reader.pubkey(), reader_balance),
                 spl_token::ID,
             ),
         )
@@ -139,11 +139,11 @@ impl Env {
         let mut env = Env {
             svm,
             authority,
-            payer,
+            reader,
             mint,
             site,
             treasury,
-            payer_ata,
+            reader_ata,
         };
 
         let ix = Instruction {
@@ -157,7 +157,7 @@ impl Env {
             }
             .to_account_metas(None),
             data: pay_on_chain::instruction::InitializeSite {
-                page_price: PAGE_PRICE,
+                item_price: ITEM_PRICE,
                 collection_threshold: THRESHOLD,
                 min_limit: MIN_LIMIT,
             }
@@ -177,7 +177,7 @@ impl Env {
         fee_payer: &Pubkey,
     ) -> Result<(), String> {
         // LiteSVM holds the blockhash steady until told otherwise, so two
-        // identical transactions — a loop of single-view meter calls, say —
+        // identical transactions — a loop of single-item meter calls, say —
         // would carry the same signature and the second would be rejected as
         // AlreadyProcessed. Advance it so every send is distinct.
         self.svm.expire_blockhash();
@@ -195,15 +195,15 @@ impl Env {
         })
     }
 
-    pub fn contract(&self) -> Contract {
-        let addr = contract_pda(&self.site, &self.payer.pubkey());
-        let acct = self.svm.get_account(&addr).expect("contract account");
-        Contract::try_deserialize(&mut acct.data.as_slice()).expect("contract deserializes")
+    pub fn meter_account(&self) -> Meter {
+        let addr = meter_pda(&self.site, &self.reader.pubkey());
+        let acct = self.svm.get_account(&addr).expect("meter account");
+        Meter::try_deserialize(&mut acct.data.as_slice()).expect("meter deserializes")
     }
 
-    pub fn contract_exists(&self) -> bool {
+    pub fn meter_exists(&self) -> bool {
         self.svm
-            .get_account(&contract_pda(&self.site, &self.payer.pubkey()))
+            .get_account(&meter_pda(&self.site, &self.reader.pubkey()))
             .map(|a| !a.data.is_empty())
             .unwrap_or(false)
     }
@@ -222,19 +222,19 @@ impl Env {
 
     // --- instruction builders --------------------------------------------
 
-    /// The authorization the whole design rests on: let the contract PDA pull
+    /// The authorization the whole design rests on: let the meter PDA pull
     /// up to `amount`. Must precede open/renew in the same transaction.
     pub fn ix_approve(&self, amount: u64) -> Instruction {
-        self.ix_approve_to(&contract_pda(&self.site, &self.payer.pubkey()), amount)
+        self.ix_approve_to(&meter_pda(&self.site, &self.reader.pubkey()), amount)
     }
 
     pub fn ix_approve_to(&self, delegate: &Pubkey, amount: u64) -> Instruction {
         spl_token::instruction::approve_checked(
             &spl_token::ID,
-            &self.payer_ata,
+            &self.reader_ata,
             &self.mint,
             delegate,
-            &self.payer.pubkey(),
+            &self.reader.pubkey(),
             &[],
             amount,
             DECIMALS,
@@ -245,61 +245,61 @@ impl Env {
     pub fn ix_open(&self, limit: u64) -> Instruction {
         Instruction {
             program_id: pay_on_chain::ID,
-            accounts: pay_on_chain::accounts::OpenContract {
-                payer: self.payer.pubkey(),
+            accounts: pay_on_chain::accounts::OpenMeter {
+                reader: self.reader.pubkey(),
                 site: self.site,
-                contract: contract_pda(&self.site, &self.payer.pubkey()),
-                payer_token_account: self.payer_ata,
+                meter: meter_pda(&self.site, &self.reader.pubkey()),
+                reader_token_account: self.reader_ata,
                 system_program: system_program::ID,
             }
             .to_account_metas(None),
-            data: pay_on_chain::instruction::OpenContract { limit }.data(),
+            data: pay_on_chain::instruction::OpenMeter { limit }.data(),
         }
     }
 
-    pub fn ix_meter(&self, page_views: u32) -> Instruction {
+    pub fn ix_meter(&self, items: u32) -> Instruction {
         Instruction {
             program_id: pay_on_chain::ID,
             accounts: pay_on_chain::accounts::MeterAndSettle {
                 site: self.site,
                 authority: self.authority.pubkey(),
-                payer: self.payer.pubkey(),
-                contract: contract_pda(&self.site, &self.payer.pubkey()),
-                payer_token_account: self.payer_ata,
+                reader: self.reader.pubkey(),
+                meter: meter_pda(&self.site, &self.reader.pubkey()),
+                reader_token_account: self.reader_ata,
                 treasury: self.treasury,
                 mint: self.mint,
                 token_program: spl_token::ID,
             }
             .to_account_metas(None),
-            data: pay_on_chain::instruction::MeterAndSettle { page_views }.data(),
+            data: pay_on_chain::instruction::MeterAndSettle { items }.data(),
         }
     }
 
     pub fn ix_renew(&self, new_limit: u64) -> Instruction {
         Instruction {
             program_id: pay_on_chain::ID,
-            accounts: pay_on_chain::accounts::RenewContract {
-                payer: self.payer.pubkey(),
+            accounts: pay_on_chain::accounts::RenewMeter {
+                reader: self.reader.pubkey(),
                 site: self.site,
-                contract: contract_pda(&self.site, &self.payer.pubkey()),
-                payer_token_account: self.payer_ata,
+                meter: meter_pda(&self.site, &self.reader.pubkey()),
+                reader_token_account: self.reader_ata,
                 system_program: system_program::ID,
             }
             .to_account_metas(None),
-            data: pay_on_chain::instruction::RenewContract { new_limit }.data(),
+            data: pay_on_chain::instruction::RenewMeter { new_limit }.data(),
         }
     }
 
     pub fn ix_close(&self) -> Instruction {
         Instruction {
             program_id: pay_on_chain::ID,
-            accounts: pay_on_chain::accounts::CloseContract {
-                payer: self.payer.pubkey(),
+            accounts: pay_on_chain::accounts::CloseMeter {
+                reader: self.reader.pubkey(),
                 site: self.site,
-                contract: contract_pda(&self.site, &self.payer.pubkey()),
+                meter: meter_pda(&self.site, &self.reader.pubkey()),
             }
             .to_account_metas(None),
-            data: pay_on_chain::instruction::CloseContract {}.data(),
+            data: pay_on_chain::instruction::CloseMeter {}.data(),
         }
     }
 
@@ -308,12 +308,12 @@ impl Env {
     /// Approve and open in one transaction, the way a client must.
     pub fn open(&mut self, limit: u64) -> Result<(), String> {
         let ixs = [self.ix_approve(limit), self.ix_open(limit)];
-        let payer = self.payer.insecure_clone();
-        self.send(&ixs, &[&payer], &payer.pubkey())
+        let reader = self.reader.insecure_clone();
+        self.send(&ixs, &[&reader], &reader.pubkey())
     }
 
-    pub fn meter(&mut self, views: u32) -> Result<(), String> {
-        let ix = self.ix_meter(views);
+    pub fn meter(&mut self, items: u32) -> Result<(), String> {
+        let ix = self.ix_meter(items);
         let authority = self.authority.insecure_clone();
         self.send(&[ix], &[&authority], &authority.pubkey())
     }

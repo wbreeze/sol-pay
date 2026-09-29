@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace SolPay\Core;
 
 /**
- * Which constraint on the payer's token account is short, and by how much.
+ * Which constraint on the reader's token account is short, and by how much.
  * Reported rather than resolved, because both can be short at once and the
  * response differs: a low balance means top up, a low allowance means
  * re-authorize.
@@ -27,7 +27,7 @@ final class Shortfall
     }
 
     /**
-     * Read the payer's token account and say what would stop a settle of
+     * Read the reader's token account and say what would stop a settle of
      * $unpaid. A read, not a guess: neither shortfall is inferable from the
      * error code alone, because SPL reports both as InsufficientFunds.
      */

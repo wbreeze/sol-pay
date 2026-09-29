@@ -1,0 +1,87 @@
+@startuml accounts
+' Accounts and their relations for the fund design, wasm-client/SPEC.md §4.7.
+' Render beside this file: java -jar plantuml.jar -tpng accounts.plantuml
+' Regenerate accounts.png in the same change as any edit here.
+
+title sol-pay accounts (SPEC §4.7)
+
+hide empty methods
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+
+class "Reader's wallet" as Wallet <<keypair>> {
+  master key; signs open, renew, withdraw, close
+}
+
+class Mint <<SPL / Token-2022>> {
+  the coin; a configuration choice
+}
+
+class Fund <<PDA>> {
+  seeds: "fund", reader, mint, index
+  --
+  reader : Pubkey
+  mint : Pubkey
+  index : u8
+  meters : u32
+  bump : u8
+}
+
+class "Fund token account" as FundAta <<ATA of the fund PDA>> {
+  the balance; extended by any transfer_checked
+}
+
+class "Site authority" as Authority <<keypair>> {
+  signs meter_and_settle
+}
+
+class Site <<PDA>> {
+  seeds: "site", authority
+  --
+  authority : Pubkey
+  mint : Pubkey
+  treasury : Pubkey
+  item_price : u64
+  collection_threshold : u64
+  min_limit : u64
+  bump : u8
+}
+
+class Treasury <<token account>> {
+  where settles land
+}
+
+class Meter <<PDA>> {
+  seeds: "meter", site, fund
+  --
+  site : Pubkey
+  fund : Pubkey
+  key : Pubkey
+  expiry : i64
+  limit : u64
+  used : u64
+  paid : u64
+  bump : u8
+}
+
+class "Browser key" as Key <<Ed25519, per site, per device>> {
+  signs key proofs and close_meter; moves no money
+}
+
+Wallet "1" -- "0..256 per mint" Fund : holds >
+Mint "1" -- "*" Fund : denominates >
+Mint "1" -- "*" Site : accepted by >
+Fund "1" *-- "1" FundAta
+Authority "1" -- "1" Site : runs >
+Site "1" -- "1" Treasury : settles into >
+Fund "1" -- "0..* (one per site)" Meter : draws on <
+Site "1" -- "0..* (one per fund)" Meter : meters >
+Meter "1" -- "1" Key : names >
+
+note bottom of Meter
+  A site and a fund have one meter between them or none.
+  open_meter and renew_meter require site.mint == fund.mint
+  (MintMismatch otherwise).
+end note
+
+@enduml

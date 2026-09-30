@@ -153,6 +153,15 @@ is no session token in the protocol and nothing to look up but an account.
 Anything more the site knows about the reader -- accounts, login, SSO -- stays
 the site's own affair. See [`wasm-client/SPEC.md` §4][spec4].
 
+A second obligation comes with the key proof: **every nonce the server issues
+is used once and expires within minutes.** A proof accepted twice can be
+replayed by whoever copies it, and each item the replayer reads is metered
+against the reader's fund -- theft of service, charged to the reader. The
+library verifies the signature; only the site's nonce store can refuse the
+replay. See [SPEC §6.6][spec66].
+
+[spec66]: wasm-client/SPEC.md#66-key-proof--shipped
+
 [spec4]: wasm-client/SPEC.md#4-what-the-integrator-owns
 
 This library is authoritative about instruction encoding, PDA derivation,

@@ -306,7 +306,9 @@ is the separate finding in `pda-spike/README.md`. So every verb in SPEC §7
 survives: still no signing, no sign-in message construction, no RPC, no
 retries, no storage, no routing, no rendering, no session management. The
 one verification it does is the key proof, `Proof::verifyKey`, over the
-site's own nonce (SPEC §6.6).
+site's own nonce (SPEC §6.6) -- a nonce the site must use once and expire
+within minutes, since a proof accepted twice lets whoever copied it read on
+the reader's fund.
 
 SPEC §2's design rule puts this on the library's side rather than the site's:
 message compilation is encoding, ordering and exact byte layout; there is no

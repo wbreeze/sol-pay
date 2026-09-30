@@ -389,7 +389,9 @@ mod bindings {
     /// (32 bytes) over `message`. For a Node server checking a page's key
     /// proof; a browser signs with `crypto.subtle` and needs nothing here.
     /// A valid signature is not a live meter: see SPEC §6.6 for the three
-    /// checks that follow it.
+    /// checks that follow it. Nor is it fresh: the nonce in `message` is the
+    /// server's to accept once and expire within minutes, or a copied proof
+    /// reads on the reader's fund.
     #[wasm_bindgen(js_name = verifyKey)]
     pub fn verify_key(key: &[u8], message: &[u8], signature: &[u8]) -> bool {
         match (<&[u8; 32]>::try_from(key), <&[u8; 64]>::try_from(signature)) {

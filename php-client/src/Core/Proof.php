@@ -22,8 +22,11 @@ namespace SolPay\Core;
  * **A valid signature is not a live meter.** After this says yes the site
  * still owes three checks of its own: that the meter's `key` is the key it
  * verified against, that the meter is not `expired($now)`, and that the
- * meter's `site` is this site. And the bytes must carry a nonce and a time
- * the server issued and remembers, or a replayed proof passes forever.
+ * meter's `site` is this site. And the bytes must carry a nonce the server
+ * issued, remembers, accepts once and expires within minutes. A proof
+ * accepted twice lets whoever copied it read on the reader's fund until the
+ * meter expires -- theft of service, charged to the reader, and nothing on
+ * chain can see it.
  */
 final class Proof
 {

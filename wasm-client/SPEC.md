@@ -1247,10 +1247,32 @@ names, so the library is too.
 **The protocol, which is the site's.** Three things are easy to get wrong
 and are therefore stated here rather than left to the reader:
 
-- **The bytes are the server's to compose and to remember.** Include a
-  nonce the server generated and a time it issued, keep both until the
-  proof arrives, and refuse a proof whose nonce it does not hold or whose
-  time is old. A verifier that skips this accepts a replayed proof forever.
+- **The bytes are the server's to compose and to remember, and the nonce
+  in them must expire.** Include a nonce the server generated and a time it
+  issued, keep both until the proof arrives, and refuse a proof whose nonce
+  it does not hold or whose time is old. Use each nonce once: forget it at
+  the first proof presented against it, whether that proof passes or not.
+  Keep its lifetime short -- the seconds or minutes a page needs to sign
+  and answer, not the days or months of the meter's own expiry, which
+  bounds a different thing (§4.8).
+
+  What this prevents is theft of service. A proof is a signature over
+  bytes, and bytes can be copied: out of a log, a proxy, a browser
+  extension, a shared machine's history. A verifier that accepts a proof
+  twice lets whoever holds a copy be recognised as the reader's browser, and
+  every item they read is metered against the reader's fund, to the limit,
+  until the meter expires. The money still reaches the site treasury, so
+  the site is not robbed; the reader is. It is the defect §4.2 removed with
+  the slug, come back through the verifier. Nothing on chain can catch it --
+  the program sees only the site authority's `meter_and_settle` -- so the
+  site's nonce store is the only place it can be stopped.
+
+  The same holds for anything the site issues on the strength of a good
+  proof. A site that verifies once and then sets a session cookie has moved
+  the bearer token from the proof to the cookie, and the cookie needs the
+  same care: short-lived, bound to the meter it was issued for, and ended
+  when the meter closes or expires.
+
   The library has no view on the layout of those bytes; a site that wants
   its readers to see what they are signing should make them readable, and
   one that does not need not.

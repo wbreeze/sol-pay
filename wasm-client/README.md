@@ -184,7 +184,9 @@ network, and this crate does not have one.
 
 A meter is identified by its site and fund, and the key proof says which
 browser holds it: the page signs a nonce from the server with its browser key,
-and `verifyKey` checks the signature against the key the meter names. Anything
+and `verifyKey` checks the signature against the key the meter names. The
+nonce is the site's to issue, use once and expire quickly: a proof accepted
+twice lets whoever copied it read on the reader's fund. Anything
 more the site knows about the reader -- a login, an SSO session -- is the
 site's business, and this crate has no opinion about it. See `SPEC.md` §4 and
 §6.6.

@@ -2826,7 +2826,7 @@ dependencies = [
 
 [[package]]
 name = "sol-pay-client"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "borsh 1.8.1",
  "bs58",

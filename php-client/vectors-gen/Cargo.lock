@@ -1253,7 +1253,7 @@ checksum = "b9be42f50aa861c555654aa3a37f52f4b1074bacf4e48fe0ef7fa584e80f1f0f"
 
 [[package]]
 name = "sol-pay-client"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "borsh 1.8.1",
  "bs58",

@@ -112,12 +112,17 @@ design does not, and nothing migrates it -- there are none worth keeping.
 An upgrade replaces the bytes at the declared address and keeps the address,
 so it needs no program keypair -- only the upgrade authority, which is the
 wallet in `solana config get` unless you pass `--upgrade-authority`. Build
-first, and confirm the build carries the id you mean to upgrade:
+first:
 
 ```
 bin/build-rust --program
-solana address -k target/deploy/pay_on_chain-keypair.json   # should print F8UDAGgx...; the build warns if not
 ```
+
+The build may warn that `target/deploy/pay_on_chain-keypair.json` is not this
+program's deploy key. For an upgrade that is expected and harmless: the `.so`
+answers to `declare_id!` whatever keypair sits beside it, and the upgrade
+names the program by address, below, so the local keypair is never read. The
+warning matters for a first deploy, above, not here.
 
 **Check the room before you deploy.** The program's bytes live in a program
 data account whose size was fixed at the first deploy, to fit that build. An

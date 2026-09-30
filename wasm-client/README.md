@@ -326,6 +326,36 @@ rebuild it), in that order —
 the crate is the one another Rust crate can depend on, so it is the one worth
 having land first if only one of them does.
 
+**Log in to both registries first.** `cargo publish` needs a crates.io API
+token stored by `cargo login`; it lasts until you revoke it, so it is
+usually already there. npm is the one that lapses: a login made with `npm
+login` is short-lived, and npm now restricts tokens that bypass two-factor
+authentication for publishing. Check it before the crate goes out, not
+after:
+
+```
+npm whoami
+```
+
+If that fails with `E401`, run `npm login` (it opens the browser). An
+expired login does not fail at `whoami` time if you skip the check -- it
+fails at the upload, and npm reports it as `E404 Not Found`, not as an
+authorization error, so as not to say who owns what. By then the crate is
+already on crates.io. On 2026-09-30 that is exactly what happened.
+
+The publish itself then asks for a second browser confirmation, the
+two-factor step; press ENTER and approve it.
+
+**If npm fails after the crate is out**, fix the cause and publish the
+already-built bundle directly rather than re-running `wasm-pack publish`:
+
+```
+(cd wasm-client/pkg && npm publish)
+```
+
+It ships the same `pkg/` you inspected with `wasm-pack pack`. A crates.io
+version cannot be re-published, so there is nothing to repeat on that side.
+
 `wasm-pack` writes `pkg/package.json` from the `[package]` fields above, so
 the npm package takes its name, version, description, license and repository
 from `Cargo.toml` and there is no second place to keep them in step. `pkg/` is

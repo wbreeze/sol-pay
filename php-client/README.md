@@ -508,12 +508,13 @@ since the spike is a record, not a dependency.
 
 ## Publishing
 
-**First published 2026-09-05; the current release is `v0.1.2`.** It stayed
+**First published 2026-09-05; the current release is `v0.2.0`** (2026-09-30,
+the fund design; mirror commit `7bb2824`). It stayed
 packaged-but-unpublished until then on purpose — the same reasoning
 `wasm-client/README.md`'s publishing section gives: rare, irreversible, and
 worth a deliberate decision rather than a side effect of finishing the code.
 What follows is the mechanism, which is unusual enough to be worth reading
-before the next release. Packagist lists `v0.1.0` and `v0.1.2`; `v0.1.1` was a
+before the next release. Packagist lists `v0.1.0`, `v0.1.2` and `v0.2.0`; `v0.1.1` was a
 mis-tag that duplicated `v0.1.0`'s tree, and "Publishing a version" below
 records how, because the way to avoid repeating it is a step in that
 procedure.

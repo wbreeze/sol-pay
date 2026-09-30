@@ -106,10 +106,13 @@ not reached, no longer to devnet. Upgrades there are signed by the upgrade
 authority, and need no copy of the program keypair at all.
 
 
-What is live there is the delegate design. The fund design in this tree goes
-out as an upgrade to the same address, under the same upgrade authority. A
-`Site` keeps its layout across the change; a meter opened under the delegate
-design does not, and nothing migrates it -- there are none worth keeping.
+What is live there is the fund design, since 2026-09-30: an upgrade to the
+same address, under the same upgrade authority, after the program data
+account was extended by 70,000 bytes to fit the larger build (signature
+`5JjkwtRi...LWSmaruR`), confirmed byte for byte by the check under
+"Confirming what is deployed". A `Site` kept its layout across the change; a
+meter opened under the earlier delegate design did not, and nothing migrated
+it -- there were none worth keeping.
 
 ### Upgrading the deployed program
 
@@ -138,8 +141,8 @@ ls -l pay-on-chain/target/deploy/pay_on_chain.so
 ```
 
 `Data Length` in the first is the room; the file size in the second is what
-has to fit in it. The fund design added instructions, so expect the build to
-have grown past what the delegate design was deployed with.
+has to fit in it. A build that adds instructions grows; the fund design
+outgrew the delegate design's account by 67,288 bytes.
 
 Current Solana CLIs extend the account for you during an upgrade (the flag
 that turns it off, `--no-auto-extend`, shows in `solana program deploy

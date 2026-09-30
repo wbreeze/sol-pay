@@ -11,11 +11,12 @@ program instructions and read its accounts.
 
 The program is deployed on devnet at
 [`F8UDAGgxVTm8Vmh4RmskpMBCFqhRvuTqbDxDCj8UMedL`][explorer], which a devnet
-reset can empty without anything here changing. That deployment, and the
-published `0.1.x` clients, are the earlier delegate design, which drew from
-the reader's own token account under an SPL approval. The code here replaces it
-with the fund design described below; both are republished together once it
-lands. Look at it on Solana Explorer, or ask a devnet node yourself:
+reset can empty without anything here changing. Since 2026-09-30 that
+deployment and the published `0.2.0` clients -- crate, npm bundle and PHP
+package -- are the fund design described below. The earlier `0.1.x` clients
+and the program deployed before that date are the delegate design, which drew
+from the reader's own token account under an SPL approval; the two do not
+interoperate. Look at it on Solana Explorer, or ask a devnet node yourself:
 
 ```
 solana program show F8UDAGgxVTm8Vmh4RmskpMBCFqhRvuTqbDxDCj8UMedL --url devnet
@@ -185,9 +186,10 @@ articles on devnet, built on the PHP port. It is a reference integration:
 everything this repository declines to supply — RPC, the wallet adapter, the
 session, the viewer-to-wallet map, the decision to meter a request, error
 attribution, log hygiene — is there, in one place, in the smallest honest
-form. It is built on the published `0.1.x` delegate design and has not
-followed the fund redesign yet, so its screens and its viewer-to-wallet map
-are the earlier flow's.
+form. It is built on the `0.1.x` delegate design and has not followed the
+fund redesign yet, so its screens and its viewer-to-wallet map are the
+earlier flow's -- and since the devnet program was upgraded to the fund
+design on 2026-09-30, it no longer works against devnet until it does.
 
 [demo]: https://github.com/wbreeze/sol-pay-demonstrator
 

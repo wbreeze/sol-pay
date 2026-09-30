@@ -82,10 +82,11 @@ matters.
 
 ### Deploying to the declared address
 
-From a clone that holds the saved key, pointing at it where it actually lives:
+From the repository root of a clone that holds the saved key, pointing at it
+where it actually lives:
 
 ```
-solana program deploy target/deploy/pay_on_chain.so \
+solana program deploy pay-on-chain/target/deploy/pay_on_chain.so \
   --program-id /path/to/your/pay_on_chain-keypair.json \
   --url devnet
 ```
@@ -111,8 +112,8 @@ design does not, and nothing migrates it -- there are none worth keeping.
 
 An upgrade replaces the bytes at the declared address and keeps the address,
 so it needs no program keypair -- only the upgrade authority, which is the
-wallet in `solana config get` unless you pass `--upgrade-authority`. Build
-first:
+wallet in `solana config get` unless you pass `--upgrade-authority`. Every
+command here runs from the repository root, the same as `bin/`. Build first:
 
 ```
 bin/build-rust --program
@@ -130,7 +131,7 @@ upgrade that is larger than it does not fit. Compare the two:
 
 ```
 solana program show F8UDAGgxVTm8Vmh4RmskpMBCFqhRvuTqbDxDCj8UMedL --url devnet
-ls -l target/deploy/pay_on_chain.so
+ls -l pay-on-chain/target/deploy/pay_on_chain.so
 ```
 
 `Data Length` in the first is the room; the file size in the second is what
@@ -144,8 +145,13 @@ account-data-too-small error, and the fix is to extend by hand, by at least
 the difference, and deploy again:
 
 ```
-solana program extend F8UDAGgxVTm8Vmh4RmskpMBCFqhRvuTqbDxDCj8UMedL <bytes> --url devnet
+solana program extend F8UDAGgxVTm8Vmh4RmskpMBCFqhRvuTqbDxDCj8UMedL <additional-bytes> --url devnet
 ```
+
+The number is what to **add**, not the new total: `.so` size minus `Data
+Length`, plus whatever headroom you want for later upgrades. Digits only --
+the CLI refuses `70,000`. Passing the
+total instead roughly doubles the account, and the rent on it.
 
 Extending costs rent on the added bytes, paid by the wallet, and cannot be
 undone short of closing the program.
@@ -154,7 +160,7 @@ Then the upgrade itself, naming the program by address rather than by
 keypair file:
 
 ```
-solana program deploy target/deploy/pay_on_chain.so \
+solana program deploy pay-on-chain/target/deploy/pay_on_chain.so \
   --program-id F8UDAGgxVTm8Vmh4RmskpMBCFqhRvuTqbDxDCj8UMedL \
   --url devnet
 ```
@@ -166,7 +172,37 @@ a funded buffer holding most of the program's rent. `solana program show
 --buffers --url devnet` lists them and `solana program close --buffers --url
 devnet` returns the SOL. Running the deploy again does not reuse one.
 
-Afterwards, `solana program show` again: `Last Deployed In Slot` should have
-moved and `Data Length` should cover the build. That is all it proves -- that
-bytes changed hands, not that the fund design works on devnet. Nothing in
-this repository exercises it there; the demonstrator is what will.
+### Confirming what is deployed
+
+`Last Deployed In Slot` in `solana program show` is not evidence of an
+upgrade: an `extend` moves it too, so after an extend it has already changed
+before the deploy runs. Compare the bytes instead. This works after a first
+deploy as well as an upgrade, and at any later time, to answer "is devnet
+running this build?":
+
+```
+solana program dump F8UDAGgxVTm8Vmh4RmskpMBCFqhRvuTqbDxDCj8UMedL /tmp/devnet.so --url devnet
+so=pay-on-chain/target/deploy/pay_on_chain.so
+n=$(wc -c < $so | tr -d ' ')
+head -c "$n" /tmp/devnet.so | cmp - $so && echo same
+tail -c +$((n + 1)) /tmp/devnet.so | tr -d '\000' | wc -c
+```
+
+Expect `same`, then `0`: the rest of the dump is padding. (`tr -d ' '`
+strips the spaces macOS's `wc` puts in front of the count.) The block has no
+trailing comments on purpose -- pasted into zsh, whose interactive shell
+does not treat `#` as a comment by default, one became three file names for
+`wc`.
+
+The dump is the whole program data account, so it is as long as `Data
+Length` and runs past the build in zeros. The first comparison takes only the
+build's length of it; the second confirms that what follows is nothing but
+zeros. `cmp -n <size>` looks like the shorter way to write the first, and on
+2026-09-30 on macOS it stopped instead with `EOF on pay_on_chain.so` and a
+failing status. That output means every byte of the build matched and the
+dump simply went on longer -- a pass that reads as a failure, which is why
+the comparison is written without it.
+
+That proves devnet holds exactly the bytes of this build -- not that the fund
+design works there. Nothing in this repository exercises it on devnet; the
+demonstrator is what will.

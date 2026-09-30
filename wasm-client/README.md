@@ -276,13 +276,45 @@ stated on the page; the server never defaults one.
 Two artifacts, one source tree, one version number: bump `version` in
 `Cargo.toml` and both follow.
 
+**The bump moves three lock files, not one.** This crate is a path dependency
+of `pay-on-chain/tests` and of `php-client/vectors-gen`, so
+`pay-on-chain/Cargo.lock` and `php-client/vectors-gen/Cargo.lock` record its
+version as well as `wasm-client/Cargo.lock` does, and every script here builds
+with `--locked`, which refuses a lock that disagrees with a manifest. Move just
+that one entry in each, from inside each directory so the pinned toolchain
+answers:
+
 ```
-cargo publish --dry-run                          # crates.io: the core
-wasm-pack build --target web -- --features wasm  # regenerate pkg/ first
-wasm-pack pack                                   # npm: inspect the tarball
+(cd wasm-client              && cargo update -p sol-pay-client)
+(cd pay-on-chain             && cargo update -p sol-pay-client)
+(cd php-client/vectors-gen   && cargo update -p sol-pay-client)
 ```
 
-Then the real thing, `cargo publish` and `wasm-pack publish`, in that order —
+A path dependency has nothing to resolve, so each is a one-line diff. Not
+`bin/update-locks`, which moves everything its ranges allow and would bury the
+bump in unrelated churn. Then run the suites; `bin/test-rust` and
+`bin/test-php` both build against the new locks.
+
+From the repository root:
+
+```
+(cd wasm-client && cargo publish --dry-run)   # crates.io: the core
+bin/build-rust --client                        # regenerate pkg/ -- not a bare wasm-pack build
+grep -A2 peerDependencies wasm-client/pkg/package.json
+(cd wasm-client && wasm-pack pack)             # npm: inspect the tarball
+```
+
+**Build `pkg/` with `bin/build-rust --client`, never with `wasm-pack build`
+by hand.** The script does two things a bare build does not: it passes
+`--locked`, and it writes the optional `@solana/kit` peer range into
+`pkg/package.json`, copied from `conformance/package.json`. A tarball built
+without it publishes with no peer declaration at all, and nothing fails --
+the kit agreement job tests the range, not the published manifest. The
+`grep` above is the check.
+
+Then the real thing, `cargo publish` and `wasm-pack publish` (both from
+`wasm-client/`; the second publishes the `pkg/` already built, and does not
+rebuild it), in that order —
 the crate is the one another Rust crate can depend on, so it is the one worth
 having land first if only one of them does.
 

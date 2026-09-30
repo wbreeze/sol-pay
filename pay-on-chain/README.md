@@ -106,3 +106,62 @@ What is live there is the delegate design. The fund design in this tree goes
 out as an upgrade to the same address, under the same upgrade authority. A
 `Site` keeps its layout across the change; a meter opened under the delegate
 design does not, and nothing migrates it -- there are none worth keeping.
+
+### Upgrading the deployed program
+
+An upgrade replaces the bytes at the declared address and keeps the address,
+so it needs no program keypair -- only the upgrade authority, which is the
+wallet in `solana config get` unless you pass `--upgrade-authority`. Build
+first, and confirm the build carries the id you mean to upgrade:
+
+```
+bin/build-rust --program
+solana address -k target/deploy/pay_on_chain-keypair.json   # should print F8UDAGgx...; the build warns if not
+```
+
+**Check the room before you deploy.** The program's bytes live in a program
+data account whose size was fixed at the first deploy, to fit that build. An
+upgrade that is larger than it does not fit. Compare the two:
+
+```
+solana program show F8UDAGgxVTm8Vmh4RmskpMBCFqhRvuTqbDxDCj8UMedL --url devnet
+ls -l target/deploy/pay_on_chain.so
+```
+
+`Data Length` in the first is the room; the file size in the second is what
+has to fit in it. The fund design added instructions, so expect the build to
+have grown past what the delegate design was deployed with.
+
+Current Solana CLIs extend the account for you during an upgrade (the flag
+that turns it off, `--no-auto-extend`, shows in `solana program deploy
+--help` when yours does). One that does not fails the upgrade with an
+account-data-too-small error, and the fix is to extend by hand, by at least
+the difference, and deploy again:
+
+```
+solana program extend F8UDAGgxVTm8Vmh4RmskpMBCFqhRvuTqbDxDCj8UMedL <bytes> --url devnet
+```
+
+Extending costs rent on the added bytes, paid by the wallet, and cannot be
+undone short of closing the program.
+
+Then the upgrade itself, naming the program by address rather than by
+keypair file:
+
+```
+solana program deploy target/deploy/pay_on_chain.so \
+  --program-id F8UDAGgxVTm8Vmh4RmskpMBCFqhRvuTqbDxDCj8UMedL \
+  --url devnet
+```
+
+**A failed upgrade leaves a buffer behind.** The CLI writes the new bytes to
+a buffer account first and swaps them in at the end, so an upgrade that fails
+partway -- a dropped connection, too little SOL, the size check above -- leaves
+a funded buffer holding most of the program's rent. `solana program show
+--buffers --url devnet` lists them and `solana program close --buffers --url
+devnet` returns the SOL. Running the deploy again does not reuse one.
+
+Afterwards, `solana program show` again: `Last Deployed In Slot` should have
+moved and `Data Length` should cover the build. That is all it proves -- that
+bytes changed hands, not that the fund design works on devnet. Nothing in
+this repository exercises it there; the demonstrator is what will.

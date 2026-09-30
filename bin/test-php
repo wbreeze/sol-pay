@@ -10,11 +10,6 @@
 # frozen literals cannot notice the crate moving underneath them. These vectors
 # can, because they are regenerated from the *published* crate on every run.
 #
-# TEMPORARY, 2026-09-29, until the next sol-pay-client release, the generator builds
-# against the local crate instead: see php-client/vectors-gen/Cargo.toml. Until
-# then this checks php-client against the Rust crate in this tree, and not
-# against an outside opinion.
-#
 # Different again from bin/test-node, which loads the same wasm binary the
 # browser loads and therefore guards a loading contract rather than an
 # agreement between two implementations. Only this one is drift control.

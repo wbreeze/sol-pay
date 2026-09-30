@@ -386,11 +386,12 @@ rather than from this tree, which is why both also watch `pay-on-chain/programs/
 -- the generator depends on it by path for genuinely Anchor-serialized account
 bytes and the real error discriminants.
 
-**Temporarily not, from 2026-09-29 until the next `sol-pay-client` release.**
-The rename in `wasm-client/SPEC.md` §4.11 changed the meter's seed and four
-discriminators, so the published 0.1.x no longer matches this tree, and
-`php-client/vectors-gen` depends on `../../wasm-client` by path meanwhile. Its
-`Cargo.toml` says how to switch back; do it in the same change as the publish.
+Between a change that alters the chain's shape and the release that
+publishes it, that stops working -- the published crate and this tree
+describe different chains. From 2026-09-29 to the 0.2.0 release on
+2026-09-30 the generator depended on `../../wasm-client` by path for that
+reason. `php-client/vectors-gen/Cargo.toml` records how, and what to undo;
+it is back on crates.io now.
 
 `php-client`'s PHPUnit suite (above) is still run by hand. It answers a
 different question from the conformance job: its expected values are

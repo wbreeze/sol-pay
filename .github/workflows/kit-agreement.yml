@@ -111,8 +111,6 @@ jobs:
       - name: Build browser bundle
         run: ./bin/build-rust --client
 
-      # TEMPORARY, 2026-09-29, until the next sol-pay-client release,
-      # these come from the local crate -- php-client/vectors-gen/Cargo.toml.
       - name: Generate vectors
         working-directory: php-client/vectors-gen
         run: cargo run --release --locked > "$GITHUB_WORKSPACE/vectors.json"

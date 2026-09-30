@@ -4,18 +4,28 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-# TEMPORARY, 2026-09-29, until the next sol-pay-client release: from this
-# tree, not crates.io. The rename (SPEC.md §4.11) changed the meter's seed and
-# three instruction and one account discriminator, so the published 0.1.x and
-# the local program no longer describe the same chain. Vectors from it would
-# fail every conformance run until the publish, for a reason that is not
-# drift. Through the unpublished stretch the useful question is whether
-# php-client agrees with the Rust crate, which this still answers; what it
-# gives up is the outside opinion. Switch back to the registry
-# (`sol-pay-client = "<new version>"`, and `cargo update -p sol-pay-client`)
-# in the same change as the publish, and drop the matching notes in
-# bin/test-php, bin/test-node and the three conformance workflows.
-sol-pay-client = { path = "../../wasm-client" }
+# From crates.io, not from this tree: the vectors are meant to be an outside
+# opinion about the right answers, and a path dependency would only prove
+# php-client agrees with the local source. Move it up after each release
+# (`sol-pay-client = "<new version>"`, then `cargo update -p sol-pay-client`
+# here) -- it can only follow a publish, never lead one.
+#
+# One exception, and the precedent for it. When a change that is not yet
+# published alters what the chain looks like -- seeds, discriminators,
+# account layouts -- the published crate and the local program stop
+# describing the same chain, and every conformance run fails for a reason
+# that is not drift. From 2026-09-29 (the rename, SPEC.md §4.11, then the
+# fund design) until 0.2.0 was published on 2026-09-30, this was a path
+# dependency on ../../wasm-client for exactly that reason, with a matching
+# note in bin/test-php, bin/test-node, CLAUDE.md and the three conformance
+# workflows, and php-conformance.yml watching wasm-client/. Do the same
+# again if it recurs, and undo all of it in the change after the publish. A
+# path dependency here also breaks the split mirror's copy of this crate,
+# where ../../wasm-client does not exist, so undo it before running
+# bin/split-php-client. Undoing it is `cargo check` here without --locked,
+# not `cargo update -p sol-pay-client`, which cannot match a package whose
+# source changed; wasm-client/README.md, "Publishing", has the detail.
+sol-pay-client = "0.2.0"
 solana-pubkey = "2.4"
 sha2 = "0.10"
 # Path, not crates.io: unpublished, and this is the one place a genuine

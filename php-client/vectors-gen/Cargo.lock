@@ -1254,6 +1254,8 @@ checksum = "b9be42f50aa861c555654aa3a37f52f4b1074bacf4e48fe0ef7fa584e80f1f0f"
 [[package]]
 name = "sol-pay-client"
 version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "584ee175ef527c32a30facbbd00cd525ef07916efd55c0c2ae427403c6ad78fe"
 dependencies = [
  "borsh 1.8.1",
  "bs58",

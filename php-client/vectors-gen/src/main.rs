@@ -1,7 +1,6 @@
 //! Generates conformance vectors for php-client to check itself against:
 //! PDA derivation (sites, funds with their token accounts, meters) and every
-//! instruction builder from the published `sol-pay-client` crate
-//! (temporarily the local one -- see the note in Cargo.toml), plus genuine
+//! instruction builder from the published `sol-pay-client` crate, plus genuine
 //! Anchor-serialized `Site`, `Fund` and `Meter` accounts and
 //! the program's own error code tables, both sourced directly from the
 //! `pay-on-chain` program crate rather than copied by hand.

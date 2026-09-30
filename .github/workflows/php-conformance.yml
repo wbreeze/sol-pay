@@ -23,17 +23,12 @@ on:
     paths:
       - 'php-client/**'
       - 'pay-on-chain/programs/**'
-      # Temporary, with the path dependency in php-client/vectors-gen.
-      - 'wasm-client/src/**'
-      - 'wasm-client/Cargo.toml'
       - 'bin/**'
       - '.github/workflows/php-conformance.yml'
   pull_request:
     paths:
       - 'php-client/**'
       - 'pay-on-chain/programs/**'
-      - 'wasm-client/src/**'
-      - 'wasm-client/Cargo.toml'
       - 'bin/**'
       - '.github/workflows/php-conformance.yml'
   workflow_dispatch:
@@ -59,9 +54,6 @@ jobs:
       # answers are. It also depends on pay-on-chain by path, for genuinely
       # Anchor-serialized Site and Meter bytes and the real error
       # discriminants -- which is why this workflow watches that directory.
-      # TEMPORARY, 2026-09-29, until the next sol-pay-client release:
-      # the generator builds against ../wasm-client, not crates.io -- see
-      # php-client/vectors-gen/Cargo.toml -- which is why wasm-client is watched.
       - name: Generate vectors
         working-directory: php-client/vectors-gen
         run: cargo run --release --locked > "$GITHUB_WORKSPACE/vectors.json"

@@ -280,18 +280,16 @@ stated on the page; the server never defaults one.
 Two artifacts, one source tree, one version number: bump `version` in
 `Cargo.toml` and both follow.
 
-**The bump moves three lock files, not one.** This crate is a path dependency
-of `pay-on-chain/tests` and of `php-client/vectors-gen`, so
-`pay-on-chain/Cargo.lock` and `php-client/vectors-gen/Cargo.lock` record its
-version as well as `wasm-client/Cargo.lock` does, and every script here builds
-with `--locked`, which refuses a lock that disagrees with a manifest. Move just
+**The bump moves two lock files, not one.** This crate is a path dependency
+of `pay-on-chain/tests`, so `pay-on-chain/Cargo.lock` records its version as
+well as `wasm-client/Cargo.lock` does, and every script here builds with
+`--locked`, which refuses a lock that disagrees with a manifest. Move just
 that one entry in each, from inside each directory so the pinned toolchain
 answers:
 
 ```
-(cd wasm-client              && cargo update -p sol-pay-client)
-(cd pay-on-chain             && cargo update -p sol-pay-client)
-(cd php-client/vectors-gen   && cargo update -p sol-pay-client)
+(cd wasm-client  && cargo update -p sol-pay-client)
+(cd pay-on-chain && cargo update -p sol-pay-client)
 ```
 
 A path dependency has nothing to resolve, so each is a one-line diff. Not
@@ -355,6 +353,28 @@ already-built bundle directly rather than re-running `wasm-pack publish`:
 
 It ships the same `pkg/` you inspected with `wasm-pack pack`. A crates.io
 version cannot be re-published, so there is nothing to repeat on that side.
+
+**After both are out, move the conformance generator up.**
+`php-client/vectors-gen` takes this crate from crates.io, so it can only
+follow a release, never lead one. Set its `sol-pay-client` to the new
+version, then:
+
+```
+(cd php-client/vectors-gen && cargo update -p sol-pay-client)
+bin/test-php
+bin/test-node
+```
+
+That is for an ordinary release, where the lock already takes the crate from
+crates.io. **If it was a path dependency through the release** (the
+exception described in `vectors-gen/Cargo.toml`), `cargo update -p` fails
+with `did not match any packages`: the lock names the path package, which
+the manifest no longer asks for. Run `cargo check` there instead, without
+`--locked`; it keeps every other lock entry and resolves only the changed
+one. The lock diff should be two added lines on the `sol-pay-client` entry,
+its `source` and `checksum` -- that is what it was on 2026-09-30.
+Commit that before `bin/split-php-client`, which carries `vectors-gen/`
+into the mirror.
 
 `wasm-pack` writes `pkg/package.json` from the `[package]` fields above, so
 the npm package takes its name, version, description, license and repository

@@ -15,10 +15,14 @@ split so the useful part is not tied to a browser:
 
 ```
 rustup target add wasm32-unknown-unknown
-cargo test                                        # core tests, native
-cargo run --example open_meter                 # the write path, printed
-wasm-pack build --target web -- --features wasm   # browser bundle in ./pkg
+cargo test
+cargo run --example open_meter
+wasm-pack build --target web -- --features wasm
 ```
+
+- `cargo test`: core tests, native
+- `cargo run --example open_meter`: the write path, printed
+- `wasm-pack build --target web -- --features wasm`: browser bundle in ./pkg
 
 Or `bin/test-rust` and `bin/build-rust --client` from the repository root,
 which add `--locked` and, for the program, everything the LiteSVM harness
@@ -298,11 +302,15 @@ bump in unrelated churn. Then run the suites; `bin/test-rust` and
 From the repository root:
 
 ```
-(cd wasm-client && cargo publish --dry-run)   # crates.io: the core
-bin/build-rust --client                        # regenerate pkg/ -- not a bare wasm-pack build
+(cd wasm-client && cargo publish --dry-run)
+bin/build-rust --client
 grep -A2 peerDependencies wasm-client/pkg/package.json
-(cd wasm-client && wasm-pack pack)             # npm: inspect the tarball
+(cd wasm-client && wasm-pack pack)
 ```
+
+- `(cd wasm-client && cargo publish --dry-run)`: crates.io: the core
+- `bin/build-rust --client`: regenerate pkg/ -- not a bare wasm-pack build
+- `(cd wasm-client && wasm-pack pack)`: npm: inspect the tarball
 
 **Build `pkg/` with `bin/build-rust --client`, never with `wasm-pack build`
 by hand.** The script does two things a bare build does not: it passes

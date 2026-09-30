@@ -84,8 +84,10 @@ avoid in Rust.
 
 ```
 composer install
-composer test          # vendor/bin/phpunit --testdox works the same way
+composer test
 ```
+
+- `composer test`: `vendor/bin/phpunit --testdox` works the same way
 
 Requires PHP ^8.1. Not wired into `bin/build-rust` or `bin/test-rust` — this
 package has no Rust toolchain dependency and no reason to share theirs; see
@@ -127,9 +129,12 @@ Regenerate and re-run after touching `state.rs`, `errors.rs`, `pda.rs`, or
 `ix.rs` on the Rust side:
 
 ```
-../bin/test-php    # regenerate the vectors, then check src/Core against them
-composer test      # the five PHPUnit suites above, against their literals
+../bin/test-php
+composer test
 ```
+
+- `../bin/test-php`: regenerate the vectors, then check src/Core against them
+- `composer test`: the five PHPUnit suites above, against their literals
 
 Those are two different questions and neither replaces the other. Frozen
 literals name a local regression precisely and cannot notice the crate
@@ -595,9 +600,11 @@ successful push anyway, and a note that belongs to the mirror belongs at the
 top of this file instead, where every split carries it forward.
 
 ```
-git ls-remote split master                 # or: git rev-parse split/master
+git ls-remote split master
 git push --force-with-lease=master:<that sha> split php-client-release:master
 ```
+
+- `git ls-remote split master`: asks the mirror; `git rev-parse split/master` answers from the last fetch
 
 **The sha has to be the mirror's, and there is a live way to get it wrong.**
 It is what `master` is on *in the mirror* — not a commit from this repository,
@@ -617,17 +624,21 @@ forcing.
 **Per release, from the root of this repository:**
 
 ```
-bin/split-php-client                       # verifies, then updates php-client-release
+bin/split-php-client
 git push split php-client-release:master
 ```
+
+- `bin/split-php-client`: verifies, then updates php-client-release
 
 **Then, in a clone of the split repository — not here:**
 
 ```
-git pull --ff-only                # the push above moved the mirror, not this clone
+git pull --ff-only
 git tag vX.Y.Z <the sha bin/split-php-client printed>
 git push origin vX.Y.Z
 ```
+
+- `git pull --ff-only`: the push above moved the mirror, not this clone
 
 **Pull first, and tag the sha the script printed.** The clone does not know
 about the push — it went from the other repository straight to the mirror —

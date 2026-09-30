@@ -18,9 +18,12 @@ is written in JavaScript, and `Anchor.toml` runs `cargo test`.
 From the repository root:
 
 ```
-bin/build-rust --program   # anchor build
-bin/test-rust              # the program suite and the client suite
+bin/build-rust --program
+bin/test-rust
 ```
+
+- `bin/build-rust --program`: anchor build
+- `bin/test-rust`: the program suite and the client suite
 
 **No validator is involved.** The tests run against [LiteSVM][litesvm], an
 in-process SVM that loads the built `.so` directly. `Anchor.toml` sets

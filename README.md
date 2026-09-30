@@ -198,10 +198,14 @@ three are one library: the same instructions, the same encoding, for the same
 program.
 
 ```
-cargo add sol-pay-client                 # a Rust server, or a Rust front end
-npm install sol-pay-client               # the browser, and Node servers
-composer require wbreeze/sol-pay-client  # a PHP server
+cargo add sol-pay-client
+npm install sol-pay-client
+composer require wbreeze/sol-pay-client
 ```
+
+- `cargo add sol-pay-client`: a Rust server, or a Rust front end
+- `npm install sol-pay-client`: the browser, and Node servers
+- `composer require wbreeze/sol-pay-client`: a PHP server
 
 [crates.io][crates] · [npm][npm] · [Packagist][packagist]
 

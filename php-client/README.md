@@ -32,27 +32,32 @@ form.
 ## What is here, and what is deliberately not
 
 `wasm-client/SPEC.md` §3 splits an integration into two consumers: a browser,
-which signs as the reader via a wallet adapter, and a server, which signs as
-the site authority. This package covers the server row only:
+which holds the page's browser key, and a server, which signs as the site
+authority. The reader's wallet signs neither side's code: it signs in the
+wallet, by a Solana Pay scan, a transaction the server composed (SPEC §4.9).
+So the server row is every instruction builder, and this package covers it:
 
 | `wasm-client/src/core` | `src/Core` |
 | --- | --- |
-| `pda.rs` | `Pda` — `siteAddress`, `meterAddress` |
-| `ix.rs` (server-signed subset) | `Ix` — `initializeSite`, `meterAndSettle` |
-| `state.rs` | `Site`, `Meter`, `TokenAccount`, `Mint`, `ByteReader` (internal) |
+| `pda.rs` | `Pda` — `siteAddress`, `fundAddress`, `fundTokenAccount`, `meterAddress` |
+| `ix.rs`, `tx.rs` | `Ix` — `initializeSite`, `meterAndSettle`; `openFund`, `deposit`, `openMeter`, `renewMeter`, `withdraw`, `closeFund`, `closeMeter`; `openFundAndDeposit`, the ordered pair |
+| `state.rs` | `Site`, `Fund`, `Meter`, `TokenAccount`, `Mint`, `ByteReader` (internal) |
 | `preflight.rs` | `Preflight`, `Blocked` |
 | `error.rs` | `PayError`, `TokenError`, `Cause`, `Shortfall` |
 | `units.rs` | `Units` |
 | `program.rs` | `Program` |
 | `ids.rs` | `Ids` |
+| `proof.rs` | `Proof` — `verifyKey`, through ext-sodium |
 | *(nothing)* | `Tx` — `compile`, `wire`; see "Transaction assembly" below |
 
-The reader-signed instructions — `open_meter`, `renew_meter`,
-`close_meter`, `approve_checked`, `revoke` — and `tx.rs`'s ordered pairing
-of them are absent on purpose. Wallet Standard is browser JavaScript, so
-those are signed in the browser regardless of what language the server runs;
-a PHP port gains nothing by having them. Signing, RPC, and storage are out of
-scope here for the same reason `wasm-client` leaves them out — see SPEC §7.
+The server composes the reader-signed setup — `openFundAndDeposit`, then
+`openMeter` or `renewMeter` — as the answer to the wallet's transaction
+request, and submits a key-signed `closeMeter` from the page as fee payer
+(SPEC §4.8). `withdraw` and `closeFund` belong to a management page rather
+than a site, and are here so that one can be built on either port. What is
+absent is the browser's half: generating the key and signing with it.
+Signing, RPC, and storage are out of scope here for the same reason
+`wasm-client` leaves them out — see SPEC §7.
 
 ## Conventions
 
@@ -183,8 +188,7 @@ a choice:
   merged.
 - **Coverage is what the recorded cases touch, and no more.** Pinned:
   `charge`, `canMeter` (including `over`), `willSettle`, `itemsRemaining`,
-  `limitFloor`, and `Shortfall::diagnose`'s three fields. Not pinned:
-  `requiredAllowance`, which is the identity function, and `Blocked::Overflow`,
+  `limitFloor`, and `Shortfall::of`. Not pinned: `Blocked::Overflow`,
   which no realistic item count reaches — and which would not mean the same
   thing on both sides anyway, since this package overflows at `PHP_INT_MAX`
   and the program at `u64`. Widening it means adding a case to the Rust
@@ -299,9 +303,10 @@ The blockhash is passed in, never fetched. The signature is produced by the
 caller — `sodium_crypto_sign_detached`, the *signature* API, present in
 ext-sodium since 7.2; only the ed25519 **core point** API is missing, which
 is the separate finding in `pda-spike/README.md`. So every verb in SPEC §7
-survives: still no signing, no signature verification, no sign-in message
-construction, no RPC, no retries, no storage, no routing, no rendering, no
-session management.
+survives: still no signing, no sign-in message construction, no RPC, no
+retries, no storage, no routing, no rendering, no session management. The
+one verification it does is the key proof, `Proof::verifyKey`, over the
+site's own nonce (SPEC §6.6).
 
 SPEC §2's design rule puts this on the library's side rather than the site's:
 message compilation is encoding, ordering and exact byte layout; there is no

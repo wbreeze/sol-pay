@@ -56,6 +56,25 @@ final class ByteReader
         return $v;
     }
 
+    /**
+     * A little-endian i64, the program's Unix-seconds `expiry`. PHP's 'P'
+     * already reads the eight bytes as a signed 64-bit integer, which is
+     * exactly an i64; it is `u64()` whose range that halves.
+     */
+    public function i64(): int
+    {
+        $v = unpack('P', substr($this->bytes, $this->at, 8))[1];
+        $this->at += 8;
+        return $v;
+    }
+
+    public function u32(): int
+    {
+        $v = unpack('V', substr($this->bytes, $this->at, 4))[1];
+        $this->at += 4;
+        return $v;
+    }
+
     public function u8(): int
     {
         $v = ord($this->bytes[$this->at]);

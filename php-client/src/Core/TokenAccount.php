@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace SolPay\Core;
 
 /**
- * The reader's SPL token account, as much of it as this package needs. Not
- * an Anchor account, so no discriminator: SPL writes a fixed 165-byte
- * layout, and Token-2022 appends extensions past that, which is why
- * anything at least that long decodes.
+ * An SPL token account, as much of it as this package needs: in practice a
+ * fund's token account, whose `amount` is the fund's balance. Not an Anchor
+ * account, so no discriminator: SPL writes a fixed 165-byte layout, and
+ * Token-2022 appends extensions past that, which is why anything at least
+ * that long decodes. The delegate fields are decoded because they are in the
+ * layout; nothing in this package reads them any more.
  */
 final class TokenAccount
 {

@@ -48,6 +48,12 @@ solana-pubkey = { version = "2.4", default-features = false, features = ["curve2
 solana-instruction = { version = "2.3", default-features = false, features = ["std"] }
 borsh = { version = "1.5", features = ["derive"] }
 bs58 = "0.5"
+# Key-proof verification (SPEC §6.6), and nothing else from it: no signing,
+# no key generation. Default features off -- "fast" adds precomputed tables to
+# the bundle for signing speed this crate never uses, and "std"/"zeroize" guard
+# secret keys it never holds. Its curve25519-dalek and sha2 are the versions
+# already in the tree through solana-pubkey's curve25519 feature.
+ed25519-dalek = { version = "2", default-features = false }
 
 wasm-bindgen = { version = "0.2", optional = true }
 serde-wasm-bindgen = { version = "0.6", optional = true }

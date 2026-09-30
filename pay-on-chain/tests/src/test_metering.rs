@@ -478,3 +478,35 @@ fn only_the_reader_closes_the_fund() {
     );
     assert!(env.exists(&env.fund));
 }
+
+// --- the key proof -------------------------------------------------------------
+
+/// SPEC §6.6 end to end: the page signs the server's bytes with the browser
+/// key, the server fetches the meter and checks the signature against the key
+/// the meter names -- then the three checks that make a valid signature a
+/// live meter. Renewing with a new key or letting the clock pass the expiry
+/// ends the proof, as §4.8 says it must.
+#[test]
+fn a_key_proof_binds_the_browser_to_its_meter() {
+    use sol_pay_client::core::{proof::verify_key, state::Meter as ClientMeter};
+
+    let mut env = Env::new(RICH);
+    env.open(LIMIT).unwrap();
+
+    let nonce = b"nonce 41c9, issued 1800000000";
+    let signed: [u8; 64] = env.key.sign_message(nonce).as_ref().try_into().unwrap();
+
+    let live = |env: &Env, now: i64| {
+        let raw = env.svm.get_account(&env.meter_addr()).expect("meter").data;
+        let meter = ClientMeter::decode(&raw).expect("decode meter");
+        verify_key(&meter.key.to_bytes(), nonce, &signed)
+            && !meter.expired(now)
+            && meter.site == env.site
+    };
+    assert!(live(&env, NOW), "the key the meter names, unexpired, this site");
+    assert!(!live(&env, NOW + HOUR + 1), "past the expiry the proof proves nothing");
+
+    let ix = env.ix_renew_with(&Keypair::new().pubkey(), LIMIT, NOW + HOUR);
+    env.as_reader(&[ix]).unwrap();
+    assert!(!live(&env, NOW), "a renewal naming another key retires this one");
+}

@@ -40,9 +40,19 @@ final class Preflight
         return $product;
     }
 
-    /** Mirrors `require!(new_used <= limit, LimitReached)`. */
-    public static function canMeter(Meter $meter, Site $site, int $items): ?Blocked
+    /**
+     * Mirrors the program's two refusals, in the program's order: Expired
+     * when `$now > expiry`, then LimitReached when `used + charge > limit`.
+     *
+     * `$now` is Unix seconds as the server trusts them. This package has no
+     * clock, as it has no RPC; the program reads the cluster's, so a server
+     * whose clock is off disagrees near the expiry by exactly that much.
+     */
+    public static function canMeter(Meter $meter, Site $site, int $items, int $now): ?Blocked
     {
+        if ($meter->expired($now)) {
+            return Blocked::expired();
+        }
         $charge = self::charge($site, $items);
         if ($charge === null) {
             return Blocked::overflow();
@@ -60,7 +70,7 @@ final class Preflight
     /**
      * Whether this call would also move money, rather than only accruing
      * usage. Worth knowing because a settling call touches the treasury and
-     * the reader's token account, so it is the one that can fail on a low
+     * the fund's token account, so it is the one that can fail on a low
      * balance.
      */
     public static function willSettle(Meter $meter, Site $site, int $items): bool
@@ -100,15 +110,5 @@ final class Preflight
     {
         $carried = $meter?->unpaid() ?? 0;
         return max($site->minLimit, $carried);
-    }
-
-    /**
-     * What the SPL approval must cover for a meter at $limit: the whole
-     * limit. Nothing is paid against a new limit yet, and the program checks
-     * the allowance against it at open and at renew.
-     */
-    public static function requiredAllowance(int $limit): int
-    {
-        return $limit;
     }
 }

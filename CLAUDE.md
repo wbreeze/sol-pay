@@ -11,7 +11,7 @@ proof of concept, no front end:
 - `wasm-client/` — `sol-pay-client`, instruction builders published both to
   crates.io (native Rust core) and to npm as a browser bundle.
 - `php-client/` — `wbreeze/sol-pay-client`, published on Packagist, covering
-  the server-signed half of `wasm-client/src/core` for PHP servers with no
+  what a server needs of `wasm-client/src/core` for PHP servers with no
   Rust toolchain and no WASM runtime. Not in the Rust workspace; it *is*
   wired into `bin/` (`bin/test-php`) and CI (`php-conformance.yml`). It
   publishes from a mirror repository rather than from here — see below.
@@ -183,20 +183,24 @@ before changing a dependency.
 ### php-client
 
 `php-client/src/Core/` (namespace `SolPay\Core`, PSR-4) covers the server row
-of `wasm-client/SPEC.md` §3's "Two consumers" table — everything a PHP site
-authority signs — and deliberately omits the reader-signed instructions
-(`open_meter`, `renew_meter`, `close_meter`, `approve_checked`,
-`revoke`): those are signed by a wallet adapter in the browser regardless of
-what the server runs, so a PHP port gains nothing by having them.
+of `wasm-client/SPEC.md` §3's "Two consumers" table. Under the fund design
+that is every instruction builder, not only what the site authority signs:
+the server composes the reader-signed setup transaction (`openFund`,
+`deposit`, `openMeter` or `renewMeter`) for the Solana Pay transaction
+request, and receives the key-signed `closeMeter` to submit as fee payer
+(SPEC §4.8, §4.9). It also verifies the key proof (`Proof::verifyKey`,
+through ext-sodium). Only the browser's half — generating the key and
+signing with it — stays out of the port.
 
 | `wasm-client/src/core` | `php-client/src/Core` |
 | --- | --- |
 | `pda.rs` | `Pda` |
-| `ix.rs` (server-signed subset) | `Ix` |
-| `state.rs` | `Site`, `Meter`, `TokenAccount`, `Mint`, `ByteReader` (internal) |
+| `ix.rs`, `tx.rs` | `Ix` (`openFundAndDeposit` is the `tx.rs` pair) |
+| `state.rs` | `Site`, `Fund`, `Meter`, `TokenAccount`, `Mint`, `ByteReader` (internal) |
 | `preflight.rs` | `Preflight`, `Blocked` |
 | `error.rs` | `PayError`, `TokenError`, `Cause`, `Shortfall` |
 | `units.rs` | `Units` |
+| `proof.rs` | `Proof` |
 | `program.rs` | `Program` |
 | `ids.rs` | `Ids` |
 
@@ -260,8 +264,8 @@ verdict and what the program then did; `conformance/preflight.php` replays it.
 Committed, from the *local* program, moved only by `bin/test-rust` — the
 opposite of `vectors.json`, which is regenerated every run from the
 *published* crate. **Do not merge the two**; they answer different questions.
-Coverage is what the recorded cases reach — `requiredAllowance` and
-`Blocked::Overflow` are not pinned, and the PHP script says so in place.
+Coverage is what the recorded cases reach — `Blocked::Overflow` is not
+pinned, and the PHP script says so in place.
 Widen it by adding a case to the Rust recorder: one place, both ports.
 
 `SolPay\Tx` closes the gap that section describes: a PHP site authority can
@@ -302,7 +306,7 @@ Regenerate and re-check after touching `state.rs`, `errors.rs`, `pda.rs`, or
 
 ```
 bin/test-php                   # regenerate vectors, check src/Core against them
-cd php-client && composer test # PdaTest, IxTest, StateTest, ErrorTest, TxTest
+cd php-client && composer test # PdaTest, IxTest, StateTest, ErrorTest, TxTest, ProofTest, …
 ```
 
 `bin/test-php` replaced the three `cd` steps this used to list. It runs the

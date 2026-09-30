@@ -31,11 +31,14 @@ final class ErrorTest extends TestCase
             PayError::MinimumBelowThreshold->name => 6001,
             PayError::ZeroItemPrice->name => 6002,
             PayError::LimitReached->name => 6003,
-            PayError::DelegateNotSet->name => 6004,
-            PayError::DelegateMismatch->name => 6005,
-            PayError::DelegateAllowanceTooLow->name => 6006,
-            PayError::LimitBelowUsage->name => 6007,
-            PayError::MathOverflow->name => 6008,
+            PayError::LimitBelowUsage->name => 6004,
+            PayError::MathOverflow->name => 6005,
+            PayError::MintMismatch->name => 6006,
+            PayError::Expired->name => 6007,
+            PayError::ExpiryInPast->name => 6008,
+            PayError::Unauthorized->name => 6009,
+            PayError::FundNotEmpty->name => 6010,
+            PayError::FundHasMeters->name => 6011,
         ];
         foreach (PayError::cases() as $case) {
             self::assertSame($fromVectorsGen[$case->name], $case->code(), $case->name);
@@ -65,12 +68,13 @@ final class ErrorTest extends TestCase
 
     public function testPayErrorCodesRoundTrip(): void
     {
-        foreach ([PayError::LimitBelowMinimum, PayError::LimitReached, PayError::DelegateAllowanceTooLow, PayError::MathOverflow] as $e) {
+        foreach ([PayError::LimitBelowMinimum, PayError::LimitReached, PayError::Expired, PayError::FundHasMeters] as $e) {
             self::assertSame($e, PayError::fromCode($e->code()));
         }
         self::assertSame(6003, PayError::LimitReached->code());
         self::assertNull(PayError::fromCode(5999));
-        self::assertNull(PayError::fromCode(6009));
+        self::assertSame(6011, PayError::FundHasMeters->code());
+        self::assertNull(PayError::fromCode(6012));
         self::assertNull(PayError::fromCode(0));
     }
 
@@ -137,41 +141,21 @@ final class ErrorTest extends TestCase
         );
     }
 
-    private static function tokenAccount(int $amount, int $delegated, bool $hasDelegate): TokenAccount
+    private static function tokenAccount(int $amount): TokenAccount
     {
         return new TokenAccount(
             mint: Base58::encode(str_repeat("\x01", 32)),
             owner: Base58::encode(str_repeat("\x02", 32)),
             amount: $amount,
-            delegate: $hasDelegate ? Base58::encode(str_repeat("\x03", 32)) : null,
-            delegatedAmount: $delegated,
+            delegate: null,
+            delegatedAmount: 0,
         );
     }
 
-    public function testDiagnoseSeparatesWhatTheErrorCodeConflates(): void
+    public function testShortfallIsWhatTheBalanceLacks(): void
     {
-        // Balance short, allowance fine.
-        $d = Shortfall::diagnose(self::tokenAccount(40, 500, true), 100);
-        self::assertSame(60, $d->balanceShort);
-        self::assertSame(0, $d->allowanceShort);
-        self::assertFalse($d->isClear());
-
-        // Allowance short, balance fine.
-        $d = Shortfall::diagnose(self::tokenAccount(500, 40, true), 100);
-        self::assertSame(0, $d->balanceShort);
-        self::assertSame(60, $d->allowanceShort);
-
-        // Both, which a single verdict would have to pick between.
-        $d = Shortfall::diagnose(self::tokenAccount(40, 30, true), 100);
-        self::assertSame(60, $d->balanceShort);
-        self::assertSame(70, $d->allowanceShort);
-
-        // Spent to zero: SPL clears the delegate.
-        $d = Shortfall::diagnose(self::tokenAccount(500, 0, false), 100);
-        self::assertFalse($d->delegatePresent);
-        self::assertSame(100, $d->allowanceShort);
-
-        $d = Shortfall::diagnose(self::tokenAccount(500, 500, true), 100);
-        self::assertTrue($d->isClear());
+        self::assertSame(60, Shortfall::of(self::tokenAccount(40), 100));
+        self::assertSame(0, Shortfall::of(self::tokenAccount(100), 100));
+        self::assertSame(0, Shortfall::of(self::tokenAccount(500), 100), 'never negative');
     }
 }

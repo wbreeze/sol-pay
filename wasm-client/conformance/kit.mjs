@@ -25,10 +25,12 @@
 //      ever written would still pass.
 //   3. The transaction. kit's legacy compilation of an instruction, given
 //      roles in kit's own vocabulary, is compared to what `solana-message`
-//      produced for the identical instruction -- over the three cases in
-//      `vectors.json` chosen to reach the branches one case cannot (an empty
-//      readonly-signer partition, cross-instruction flag merging, and a fee
-//      payer prepended rather than sorted). Header, account set, every
+//      produced for the identical instruction -- over the transaction cases
+//      in `vectors.json`: three chosen to reach the branches one case cannot
+//      (an empty readonly-signer partition, cross-instruction flag merging,
+//      and a fee payer prepended rather than sorted), and since the fund
+//      design the reader's setup transaction and a key-signed sign-out.
+//      Header, account set, every
 //      account's signer and writable bit, the blockhash, and each
 //      instruction's program and account list *resolved back to addresses*.
 //      This is the claim that matters: header partitioning is where two
@@ -120,17 +122,25 @@ const pay = new wasm.PayOnChain(v.program_id);
 
 // --- 1. the shape -----------------------------------------------------------
 //
-// All three transaction builders, not one: each crosses the boundary, and
-// `close_and_revoke` pairs its two instructions in the other order.
+// Every builder a server composes with, not one: each crosses the boundary,
+// and `openFundAndDeposit` returns a pair. Inputs come off the vectors so the
+// addresses are the generator's own.
 const ms = v.meter_and_settle;
 const a = ms.accounts.map((x) => x.pubkey);
-const [site, authority, reader, readerAta, treasury, mint] = [a[0], a[1], a[2], a[4], a[5], a[6]];
+const [site, authority, fund, treasury, mint] = [a[0], a[1], a[2], a[5], a[6]];
+const reader = v.instructions.open_fund.accounts[0].pubkey;
+const readerAta = v.instructions.deposit.accounts[0].pubkey;
+const key = v.instructions.close_meter_by_key.accounts[0].pubkey;
+const expiry = 1_800_003_600n;
 
 const groups = {
-  approveAndOpen: pay.approveAndOpen(readerAta, mint, reader, site, 1_000_000n, 6),
-  approveAndRenew: pay.approveAndRenew(readerAta, mint, reader, site, 2_000_000n, 6),
-  closeAndRevoke: pay.closeAndRevoke(readerAta, reader, site),
-  meterAndSettle: [pay.meterAndSettle(site, authority, reader, readerAta, treasury, mint, ms.items)],
+  openFundAndDeposit: pay.openFundAndDeposit(reader, mint, 0, readerAta, 2_000_000n, 6),
+  openMeter: [pay.openMeter(site, reader, fund, key, 1_000_000n, expiry)],
+  renewMeter: [pay.renewMeter(site, reader, fund, key, 1_200_000n, expiry + 3_600n)],
+  closeMeter: [pay.closeMeter(key, reader, site, fund)],
+  withdraw: [pay.withdraw(reader, mint, 0, readerAta, 1_500_000n)],
+  closeFund: [pay.closeFund(reader, mint, 0)],
+  meterAndSettle: [pay.meterAndSettle(site, authority, fund, treasury, mint, ms.items)],
 };
 
 const wellFormed = (ix) =>

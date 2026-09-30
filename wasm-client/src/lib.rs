@@ -17,7 +17,7 @@
 //!
 //! Anything that depends on *which* deployment of the metering program is
 //! being addressed hangs off the `PayOnChain` class; the rest -- decoding,
-//! unit conversion, preflight arithmetic, `shortfall` -- is free-standing,
+//! unit conversion, preflight arithmetic, `shortfall`, `verifyKey` -- is free-standing,
 //! because it is the same whoever deployed the program.
 //!
 //! ```js
@@ -381,6 +381,21 @@ mod bindings {
         let account = state::TokenAccount::decode(token_account_data)
             .map_err(|e| JsError::new(&e.to_string()))?;
         Ok(error::shortfall(&account, unpaid))
+    }
+
+    // --- key proof ------------------------------------------------------
+
+    /// True when `signature` (64 bytes) is a valid Ed25519 signature by `key`
+    /// (32 bytes) over `message`. For a Node server checking a page's key
+    /// proof; a browser signs with `crypto.subtle` and needs nothing here.
+    /// A valid signature is not a live meter: see SPEC §6.6 for the three
+    /// checks that follow it.
+    #[wasm_bindgen(js_name = verifyKey)]
+    pub fn verify_key(key: &[u8], message: &[u8], signature: &[u8]) -> bool {
+        match (<&[u8; 32]>::try_from(key), <&[u8; 64]>::try_from(signature)) {
+            (Ok(key), Ok(signature)) => crate::core::proof::verify_key(key, message, signature),
+            _ => false,
+        }
     }
 
     // --- the deployment ---------------------------------------------------

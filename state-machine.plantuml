@@ -3,88 +3,96 @@ state program #pink
 program : on chain account program
 
 state wallet #yellow
-wallet : reader wallet interaction
+wallet : reader's wallet, on whatever device it is
 
 state screen #cyan
 screen : visible or interactive content
 
+state server
+server : site's server, no signature
+
 state identified <<choice>>
+state prove_key
 state set_meter #cyan
-state find_meter
-state authorize #yellow
-state open_meter #pink
+state scan #yellow
+state setup #pink
+state continue #cyan
 state metered_page #cyan
 state meter_and_settle #pink
 state check_limit <<choice>>
 state manage_meter #cyan
-state renew_meter #pink
 state close_meter #pink
 
 [*] -[bold]-> identified : navigate
-identified --> set_meter : viewer not identified
-identified -[bold]-> find_meter : viewer's wallet address known
+identified --> set_meter : no meter known for this browser
+identified -[bold]-> prove_key : meter address known
 
-find_meter : derive the meter address from site and wallet address
-find_meter : fetch the account
-find_meter -> set_meter : no meter
-find_meter -[bold]-> check_limit : meter found
+prove_key : fetch the meter at [meter, site, fund]
+prove_key : page signs the server's nonce with its browser key
+prove_key : verify_key against the key the meter names
+prove_key : check meter key, expiry and site
+prove_key -> set_meter : no meter, or the proof fails
+prove_key -[bold]-> check_limit : live meter
 
-set_meter : inform cost per fetch
-set_meter : prompt limit amount
+set_meter : inform cost per item
+set_meter : prompt deposit, limit and which fund
 set_meter : enforce minimum on limit amount
-set_meter --> authorize : set the meter
+set_meter : page generates its browser key, posts the public half
+set_meter : reused for the first setting, a renewal and a new device
+set_meter --> scan : show the Solana Pay link
 
-authorize : reader wallet authorizes spending up to the limit
-authorize : reused for the first setting and for every renewal
-authorize -> set_meter : wallet cancelled (first setting)
-authorize --> open_meter : wallet signed (first setting)
-authorize -> manage_meter : wallet cancelled (renewal)
-authorize -[bold]-> [*] : wallet signed (renewal), navigate
+scan : wallet fetches the transaction from the site's server
+scan : reader reads it and signs, in the wallet
+scan -> set_meter : reader declines
+scan --> setup : wallet submits
 
-open_meter : create the meter for this site and reader
-open_meter --> check_limit
+setup : open_fund, if the named fund is new
+setup : deposit, if the reader chose an amount
+setup : open_meter or renew_meter, naming key, limit and expiry
+setup : one transaction, signed and paid for by the reader
+setup --> continue
+
+continue : reader returns and clicks continue
+continue : server fetches the meter once; nothing polls
+continue -> continue : not landed yet
+continue --> check_limit : meter found
+
+check_limit -> manage_meter : limit reached, or past expiry
+check_limit -[bold]-> meter_and_settle : live and below limit
+
+meter_and_settle : refuse past the expiry
+meter_and_settle : bump used amount on account by item increment
+meter_and_settle : if unpaid balance crosses collection threshold,
+meter_and_settle : transfer the entire unpaid balance from the fund
+meter_and_settle : increment and transfer succeed or fail together (atomic)
+meter_and_settle -[bold]-> metered_page : instruction succeeded
+meter_and_settle --> manage_meter : instruction failed (fund short, expired)
 
 metered_page : display metered content as navigated
 metered_page -[bold]-> [*] : navigate
 
-meter_and_settle : bump used amount on account by item increment
-meter_and_settle : if unpaid balance crosses collection threshold,
-meter_and_settle : transfer the entire unpaid balance in same instruction
-meter_and_settle : increment and transfer succeed or fail together (atomic)
-meter_and_settle -[bold]-> metered_page : instruction succeeded
-meter_and_settle --> manage_meter : instruction failed (insufficient funds)
-
-check_limit -> manage_meter : limit reached
-check_limit -[bold]-> meter_and_settle : meter below limit
-
-manage_meter: show current limit, cost per item
-manage_meter: show used and paid amount
-manage_meter: to change wallets, close the meter and set a new one with the new wallet
-manage_meter: prompt new limit for renewal
-manage_meter: enforce minimum on limit amount
+manage_meter : show limit, cost per item, used and paid, expiry
+manage_meter : show the fund's balance, and any shortfall
+manage_meter : prompt a new limit, or a deposit
 manage_meter -> [*] : navigate
-manage_meter --> renew_meter : renew
-manage_meter --> close_meter : delete
+manage_meter --> set_meter : renew or extend
+manage_meter --> close_meter : sign out
 
-renew_meter: enforce minimum on limit amount
-renew_meter: reduce used amount by paid amount
-renew_meter: zero paid amount
-renew_meter: set new limit amount
-renew_meter --> authorize : re-authorize new limit
-
-close_meter : meter_and_settle takes the entire unpaid balance,
-close_meter : so residue is always below the collection threshold
-close_meter : leave the residue uncollected (take the loss)
+close_meter : signed by the browser key; the server pays the fee
+close_meter : residue is always below the collection threshold,
+close_meter : so it is left uncollected (the site takes the loss)
+close_meter : rent returns to the reader
 close_meter --> [*] : navigate
 
 legend left
 Colour says what kind of step it is, not who runs it.
 The pink (on chain) steps divide by signer:
-  reader signs .......... open_meter, renew_meter, close_meter
-  site authority signs . meter_and_settle
-Identifying the viewer is the integrator's own business. This diagram assumes
-only that the site can map the viewer to a wallet address; see
-wasm-client/SPEC.md section 4.
+  reader's wallet signs ... open_fund, deposit, open_meter, renew_meter
+  browser key signs ....... close_meter, and the key proof off chain
+  site authority signs .... meter_and_settle
+Withdrawing from a fund and closing it are the reader's too, on a
+management page of their own, and appear nowhere in a site's flow.
+See wasm-client/SPEC.md sections 4.7 to 4.9.
 endlegend
 
 @enduml

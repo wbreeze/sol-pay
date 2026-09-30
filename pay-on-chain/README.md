@@ -101,3 +101,8 @@ claim-the-address risk above now applies to mainnet and to any cluster it has
 not reached, no longer to devnet. Upgrades there are signed by the upgrade
 authority, and need no copy of the program keypair at all.
 
+
+What is live there is the delegate design. The fund design in this tree goes
+out as an upgrade to the same address, under the same upgrade authority. A
+`Site` keeps its layout across the change; a meter opened under the delegate
+design does not, and nothing migrates it -- there are none worth keeping.

@@ -6,10 +6,10 @@ namespace SolPay\Core;
 
 /**
  * PDA derivation. `findProgramAddress` is Solana's own algorithm, working on
- * raw 32-byte strings; `siteAddress` and `meterAddress` are the named
- * wrappers a server actually calls, taking and returning base58 addresses --
- * this package's boundary type throughout. Seeds mirror
- * pay-on-chain/programs/pay-on-chain/src/constants.rs and
+ * raw 32-byte strings; `siteAddress`, `fundAddress`, `fundTokenAccount` and
+ * `meterAddress` are the named wrappers a server actually calls, taking and
+ * returning base58 addresses -- this package's boundary type throughout.
+ * Seeds mirror pay-on-chain/programs/pay-on-chain/src/constants.rs and
  * wasm-client/src/core/pda.rs.
  *
  * This class carries only what the live package needs. The comparison
@@ -21,6 +21,7 @@ final class Pda
 {
     private const MARKER = 'ProgramDerivedAddress';
     private const SITE_SEED = 'site';
+    private const FUND_SEED = 'fund';
     private const METER_SEED = 'meter';
 
     /**
@@ -43,22 +44,61 @@ final class Pda
     /** @return array{address: string, bump: int} */
     public static function siteAddress(string $authority, ?string $programId = null): array
     {
-        $programId ??= Ids::PAY_ON_CHAIN_ID;
-        [$addr, $bump] = self::findProgramAddress(
+        return self::derive(
             [self::SITE_SEED, Base58::decode($authority)],
-            Base58::decode($programId),
+            $programId ?? Ids::PAY_ON_CHAIN_ID,
         );
-        return ['address' => Base58::encode($addr), 'bump' => $bump];
+    }
+
+    /**
+     * A reader's fund in one mint. `$index` (0..255) tells several funds in
+     * the same mint apart; nothing treats zero specially (SPEC §4.7).
+     *
+     * @return array{address: string, bump: int}
+     */
+    public static function fundAddress(string $reader, string $mint, int $index, ?string $programId = null): array
+    {
+        if ($index < 0 || $index > 255) {
+            throw new \InvalidArgumentException("fund index must be 0..255, got $index");
+        }
+        return self::derive(
+            [self::FUND_SEED, Base58::decode($reader), Base58::decode($mint), chr($index)],
+            $programId ?? Ids::PAY_ON_CHAIN_ID,
+        );
+    }
+
+    /**
+     * The fund's token account: the associated token account of the fund
+     * PDA, under the site's token program. This is where a deposit goes.
+     */
+    public static function fundTokenAccount(
+        string $fund,
+        string $mint,
+        string $tokenProgram = Ids::TOKEN_PROGRAM_ID,
+    ): string {
+        return self::derive(
+            [Base58::decode($fund), Base58::decode($tokenProgram), Base58::decode($mint)],
+            Ids::ASSOCIATED_TOKEN_PROGRAM_ID,
+        )['address'];
+    }
+
+    /**
+     * One meter per site per fund.
+     *
+     * @return array{address: string, bump: int}
+     */
+    public static function meterAddress(string $site, string $fund, ?string $programId = null): array
+    {
+        return self::derive(
+            [self::METER_SEED, Base58::decode($site), Base58::decode($fund)],
+            $programId ?? Ids::PAY_ON_CHAIN_ID,
+        );
     }
 
     /** @return array{address: string, bump: int} */
-    public static function meterAddress(string $site, string $reader, ?string $programId = null): array
+    private static function derive(array $seeds, string $programId): array
     {
-        $programId ??= Ids::PAY_ON_CHAIN_ID;
-        [$addr, $bump] = self::findProgramAddress(
-            [self::METER_SEED, Base58::decode($site), Base58::decode($reader)],
-            Base58::decode($programId),
-        );
+        [$addr, $bump] = self::findProgramAddress($seeds, Base58::decode($programId));
         return ['address' => Base58::encode($addr), 'bump' => $bump];
     }
 }

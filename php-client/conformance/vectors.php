@@ -30,6 +30,8 @@ declare(strict_types=1);
 require __DIR__.'/../vendor/autoload.php';
 
 use SolPay\Core\AccountMeta;
+use SolPay\Core\Base58;
+use SolPay\Core\Fund;
 use SolPay\Core\Meter;
 use SolPay\Core\Instruction;
 use SolPay\Core\Ix;
@@ -97,28 +99,66 @@ function whereMessagesDiffer(string $got, string $want, int $keyCount): string
     return sprintf('byte %d, in %s: %02x not %02x', $n, $where, ord($g[$n]), ord($w[$n]));
 }
 
-// Same inputs the generator used: sha256("authority-<i>") / sha256("payer-<i>"),
-// as raw bytes, base58 only at the boundary -- which is where this package
-// puts every pubkey anyway.
+// Same inputs the generator used: sha256("authority-<i>"), sha256("payer-<i>")
+// and sha256("mint-<i>"), with fund index i mod 256, as raw bytes, base58
+// only at the boundary -- which is where this package puts every pubkey
+// anyway. ("payer" is a frozen seed label; the account is the reader's.)
+$seed = static fn (string $tag): string => Base58::encode(hash('sha256', $tag, true));
+
 $sites = 0;
+$funds = 0;
+$tokenAccounts = 0;
 $meters = 0;
 foreach ($v['site'] as $row) {
     $i = $row['i'];
-    $authority = \SolPay\Core\Base58::encode(hash('sha256', "authority-$i", true));
-    $site = Pda::siteAddress($authority, $program->id);
+    $site = Pda::siteAddress($seed("authority-$i"), $program->id);
     if ($site['address'] === $row['address'] && $site['bump'] === $row['bump']) {
         ++$sites;
     }
 
-    $reader = \SolPay\Core\Base58::encode(hash('sha256', "payer-$i", true));
-    $meter = Pda::meterAddress($site['address'], $reader, $program->id);
+    $f = $v['fund'][$i];
+    $mint = $seed("mint-$i");
+    $fund = Pda::fundAddress($seed("payer-$i"), $mint, $i % 256, $program->id);
+    if ($fund['address'] === $f['address'] && $fund['bump'] === $f['bump'] && $f['index'] === $i % 256) {
+        ++$funds;
+    }
+    if (Pda::fundTokenAccount($fund['address'], $mint, $program->tokenProgram) === $f['token_account']) {
+        ++$tokenAccounts;
+    }
+
+    $meter = Pda::meterAddress($site['address'], $fund['address'], $program->id);
     $want = $v['meter'][$i];
     if ($meter['address'] === $want['address'] && $meter['bump'] === $want['bump']) {
         ++$meters;
     }
 }
 check('site PDAs', $sites === $v['count'], "$sites/{$v['count']}");
+check('fund PDAs', $funds === $v['count'], "$funds/{$v['count']}");
+check('fund token accounts', $tokenAccounts === $v['count'], "$tokenAccounts/{$v['count']}");
 check('meter PDAs', $meters === $v['count'], "$meters/{$v['count']}");
+
+/** Every field of an instruction against the vector: program, data, order, both flags. */
+function sameInstruction(Instruction $ix, array $want): ?string
+{
+    if ($ix->programId !== $want['program_id']) {
+        return 'program id';
+    }
+    if (bin2hex($ix->data) !== $want['data_hex']) {
+        return 'data '.bin2hex($ix->data);
+    }
+    if (count($ix->accounts) !== count($want['accounts'])) {
+        return count($ix->accounts).' accounts, not '.count($want['accounts']);
+    }
+    foreach ($want['accounts'] as $n => $expected) {
+        $got = $ix->accounts[$n];
+        if ($got->pubkey !== $expected['pubkey']
+            || $got->isSigner !== $expected['is_signer']
+            || $got->isWritable !== $expected['is_writable']) {
+            return "account $n";
+        }
+    }
+    return null;
+}
 
 // Rebuild the instruction from the accounts the vector records, then compare
 // every field of it -- data, order, and both flags. The flags are the half
@@ -130,28 +170,46 @@ $ix = Ix::meterAndSettle(
     $want[0]['pubkey'],
     $want[1]['pubkey'],
     $want[2]['pubkey'],
-    $want[4]['pubkey'],
     $want[5]['pubkey'],
     $want[6]['pubkey'],
     $ms['items'],
 );
 check('meter_and_settle data', bin2hex($ix->data) === $ms['data_hex'], bin2hex($ix->data));
+$mismatch = sameInstruction($ix, ['program_id' => $ms['program_id'], 'data_hex' => $ms['data_hex'], 'accounts' => $want]);
+check('meter_and_settle accounts', $mismatch === null, $mismatch ?? count($ix->accounts).' accounts, pubkeys and flags');
 
-$mismatch = null;
-foreach ($want as $n => $expected) {
-    $got = $ix->accounts[$n] ?? null;
-    if ($got === null
-        || $got->pubkey !== $expected['pubkey']
-        || $got->isSigner !== $expected['is_signer']
-        || $got->isWritable !== $expected['is_writable']) {
-        $mismatch ??= "account $n";
-    }
+// Every other builder, from the generator's own inputs rather than from the
+// vector's account lists, so a derivation this package gets wrong shows up as
+// a wrong pubkey rather than being copied in. These are the builders a PHP
+// server composes the reader's transaction from (SPEC §4.9).
+$authority = $seed('authority-0');
+$site0 = Pda::siteAddress($authority, $program->id)['address'];
+$reader = $seed('payer-0');
+$readerAta = $seed('payer-ata-0');
+$treasury = $seed('treasury-0');
+$mint0 = $seed('mint-0');
+$key = $seed('key-0');
+$fund0 = Pda::fundAddress($reader, $mint0, 0, $program->id)['address'];
+$expiry = 1_800_003_600;
+$built = [
+    'initialize_site' => Ix::initializeSite($program, $authority, $mint0, $treasury, 10_000, 250_000, 500_000),
+    'open_fund' => Ix::openFund($program, $reader, $mint0, 0),
+    'deposit' => Ix::deposit($program, $readerAta, $reader, $fund0, $mint0, 2_000_000, 6),
+    'withdraw' => Ix::withdraw($program, $reader, $mint0, 0, $readerAta, 1_500_000),
+    'close_fund' => Ix::closeFund($program, $reader, $mint0, 0),
+    'open_meter' => Ix::openMeter($program, $site0, $reader, $fund0, $key, 1_000_000, $expiry),
+    'renew_meter' => Ix::renewMeter($program, $site0, $reader, $fund0, $key, 1_200_000, $expiry + 3_600),
+    'close_meter_by_reader' => Ix::closeMeter($program, $reader, $reader, $site0, $fund0),
+    'close_meter_by_key' => Ix::closeMeter($program, $key, $reader, $site0, $fund0),
+];
+$vectors = $v['instructions'] ?? [];
+check('instruction vectors present', count($vectors) === count($built), count($vectors).' of '.count($built));
+foreach ($built as $name => $ix) {
+    $mismatch = isset($vectors[$name]) ? sameInstruction($ix, $vectors[$name]) : 'absent from the vectors';
+    check($name, $mismatch === null, $mismatch ?? count($ix->accounts).' accounts, pubkeys and flags');
 }
-check(
-    'meter_and_settle accounts',
-    $mismatch === null && count($ix->accounts) === count($want),
-    $mismatch ?? count($ix->accounts).' accounts, pubkeys and flags',
-);
+[$openFund, $deposit] = Ix::openFundAndDeposit($program, $reader, $mint0, 0, $readerAta, 2_000_000, 6);
+check('openFundAndDeposit pairs the builders', $openFund == $built['open_fund'] && $deposit == $built['deposit']);
 
 // The compiled legacy transaction messages, and the wire bytes around them.
 //
@@ -161,10 +219,11 @@ check(
 // compiler first means hand-verifying wire bytes, which is the trap the
 // libsodium PDA shortcut was -- plausible output, no error.
 //
-// Three cases, reaching branches one case cannot: an empty readonly-signer
+// Three cases reach branches one case cannot: an empty readonly-signer
 // partition, cross-instruction flag merging, and the fee payer prepended
 // rather than sorted. `php-client/README.md`, "The order this has to happen
-// in", says which is which.
+// in", says which is which. Two more pin the transactions the fund redesign
+// has a PHP server compose: the reader's setup, and a key-signed sign-out.
 //
 // A mismatch on 348 bytes says only "differs", so `whereMessagesDiffer` names
 // the section the first differing byte falls in. That is a diagnostic, not a
@@ -220,10 +279,20 @@ check('Site::decode', $site->authority === $sa['authority']
     && $site->minLimit === $sa['min_limit']
     && $site->bump === $sa['bump']);
 
+$fa = $v['fund_account'];
+$fund = Fund::decode((string) hex2bin($fa['data_hex']));
+check('Fund::decode', $fund->reader === $fa['reader']
+    && $fund->mint === $fa['mint']
+    && $fund->index === $fa['index']
+    && $fund->meters === $fa['meters']
+    && $fund->bump === $fa['bump']);
+
 $ca = $v['meter_account'];
 $meter = Meter::decode((string) hex2bin($ca['data_hex']));
 check('Meter::decode', $meter->site === $ca['site']
-    && $meter->reader === $ca['reader']
+    && $meter->fund === $ca['fund']
+    && $meter->key === $ca['key']
+    && $meter->expiry === $ca['expiry']
     && $meter->limit === $ca['limit']
     && $meter->used === $ca['used']
     && $meter->paid === $ca['paid']

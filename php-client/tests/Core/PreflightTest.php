@@ -26,11 +26,15 @@ final class PreflightTest extends TestCase
         );
     }
 
+    private const NOW = 1_800_000_000;
+
     private static function meter(int $limit, int $used, int $paid): Meter
     {
         return new Meter(
             site: Base58::encode(str_repeat("\x01", 32)),
-            reader: Base58::encode(str_repeat("\x02", 32)),
+            fund: Base58::encode(str_repeat("\x02", 32)),
+            key: Base58::encode(str_repeat("\x03", 32)),
+            expiry: self::NOW + 3_600,
             limit: $limit,
             used: $used,
             paid: $paid,
@@ -43,11 +47,11 @@ final class PreflightTest extends TestCase
         $s = self::site(10, 100, 500);
 
         $c = self::meter(1_000, 990, 0);
-        self::assertNull(Preflight::canMeter($c, $s, 1));
+        self::assertNull(Preflight::canMeter($c, $s, 1, self::NOW));
 
         // 990 + 10 = 1000, exactly the limit, still allowed.
         $c = self::meter(1_000, 1_000, 0);
-        $blocked = Preflight::canMeter($c, $s, 1);
+        $blocked = Preflight::canMeter($c, $s, 1, self::NOW);
         self::assertSame(BlockedKind::LimitReached, $blocked->kind);
         self::assertSame(10, $blocked->over);
     }
@@ -57,7 +61,7 @@ final class PreflightTest extends TestCase
         $s = self::site(10, 100, 500);
         $c = self::meter(1_000, 950, 0);
 
-        $blocked = Preflight::canMeter($c, $s, 10);
+        $blocked = Preflight::canMeter($c, $s, 10, self::NOW);
         self::assertSame(BlockedKind::LimitReached, $blocked->kind);
         self::assertSame(50, $blocked->over);
     }
@@ -70,7 +74,7 @@ final class PreflightTest extends TestCase
         $s = self::site(intdiv(PHP_INT_MAX, 2), 100, 500);
         $c = self::meter(PHP_INT_MAX, 0, 0);
 
-        $blocked = Preflight::canMeter($c, $s, 3);
+        $blocked = Preflight::canMeter($c, $s, 3, self::NOW);
         self::assertSame(BlockedKind::Overflow, $blocked->kind);
         self::assertNull(Preflight::charge($s, 3));
         self::assertFalse(Preflight::willSettle($c, $s, 3));
@@ -93,7 +97,7 @@ final class PreflightTest extends TestCase
         self::assertTrue(Preflight::willSettle(self::meter(1_000, 190, 100), $s, 1));
     }
 
-    public function testViewsRemainingFloors(): void
+    public function testItemsRemainingFloors(): void
     {
         $s = self::site(30, 100, 500);
 
@@ -119,8 +123,17 @@ final class PreflightTest extends TestCase
         self::assertSame(700, Preflight::limitFloor($s, self::meter(1_000, 900, 200)));
     }
 
-    public function testRequiredAllowanceIsTheWholeLimit(): void
+    /** Expiry is checked first, as the program checks it, and the expiry second itself still meters. */
+    public function testExpiryComesBeforeTheLimitAndIsInclusive(): void
     {
-        self::assertSame(12_345, Preflight::requiredAllowance(12_345));
+        $s = self::site(10, 100, 500);
+
+        $full = self::meter(1_000, 1_000, 0);
+        self::assertSame(BlockedKind::Expired, Preflight::canMeter($full, $s, 1, $full->expiry + 1)->kind);
+        self::assertSame(BlockedKind::LimitReached, Preflight::canMeter($full, $s, 1, $full->expiry)->kind);
+
+        $fresh = self::meter(1_000, 0, 0);
+        self::assertNull(Preflight::canMeter($fresh, $s, 1, $fresh->expiry));
+        self::assertSame(BlockedKind::Expired, Preflight::canMeter($fresh, $s, 1, $fresh->expiry + 1)->kind);
     }
 }

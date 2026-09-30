@@ -51,19 +51,27 @@ check('initSync with bytes, no fetch, no bundler', true);
 const v = JSON.parse(await readFile(vectorsPath, 'utf8'));
 const pay = new wasm.PayOnChain(v.program_id);
 
-// Same inputs the generator used: sha256("authority-<i>") / sha256("payer-<i>").
-let sites = 0, meters = 0;
+// Same inputs the generator used: sha256("authority-<i>"), sha256("payer-<i>")
+// and sha256("mint-<i>"), fund index i mod 256. ("payer" is a frozen seed
+// label; the account is the reader's.)
+let sites = 0, funds = 0, tokenAccounts = 0, meters = 0;
 for (let i = 0; i < v.count; i++) {
   const site = pay.deriveSiteAddress(base58(sha256(`authority-${i}`)));
   if (site === v.site[i].address) sites++;
-  if (pay.deriveMeterAddress(site, base58(sha256(`payer-${i}`))) === v.meter[i].address) meters++;
+  const mint = base58(sha256(`mint-${i}`));
+  const fund = pay.deriveFundAddress(base58(sha256(`payer-${i}`)), mint, i % 256);
+  if (fund === v.fund[i].address) funds++;
+  if (pay.deriveFundTokenAccount(fund, mint) === v.fund[i].token_account) tokenAccounts++;
+  if (pay.deriveMeterAddress(site, fund) === v.meter[i].address) meters++;
 }
 check('site PDAs', sites === v.count, `${sites}/${v.count}`);
+check('fund PDAs', funds === v.count, `${funds}/${v.count}`);
+check('fund token accounts', tokenAccounts === v.count, `${tokenAccounts}/${v.count}`);
 check('meter PDAs', meters === v.count, `${meters}/${v.count}`);
 
 const ms = v.meter_and_settle;
 const want = ms.accounts.map((a) => a.pubkey);
-const ix = pay.meterAndSettle(want[0], want[1], want[2], want[4], want[5], want[6], ms.items);
+const ix = pay.meterAndSettle(want[0], want[1], want[2], want[5], want[6], ms.items);
 const data = hex(ix.data ?? new Uint8Array());
 check('meter_and_settle data', data === ms.data_hex, data);
 const got = (ix.accounts ?? []).map((a) => a.address ?? a.pubkey);
@@ -76,6 +84,18 @@ check(
   site.authority === expected.authority &&
     site.mint === expected.mint &&
     String(site.itemPrice ?? site.item_price) === String(expected.item_price),
+);
+
+const fa = v.fund_account;
+const fund = wasm.decodeFund(new Uint8Array(Buffer.from(fa.data_hex, 'hex')));
+check('decodeFund', fund.reader === fa.reader && fund.mint === fa.mint && fund.index === fa.index && fund.meters === fa.meters);
+
+const ma = v.meter_account;
+const meter = wasm.decodeMeter(new Uint8Array(Buffer.from(ma.data_hex, 'hex')));
+check(
+  'decodeMeter',
+  meter.fund === ma.fund && meter.key === ma.key && String(meter.expiry) === String(ma.expiry) &&
+    String(meter.limit) === String(ma.limit),
 );
 
 if (fail.length) {

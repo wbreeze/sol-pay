@@ -5,15 +5,12 @@ to `state-machine.plantuml` at the repository root, which remains the
 authoritative description of the flow. Where this document and the diagram
 disagree, the diagram is right and this document is a bug.
 
-**That sentence is suspended on the `next_ten` branch, 2026-09-28, for the
-sections marked *redesign*.** The diagram still draws the delegate design;
-this document now specifies the fund design that replaces it (§4.7). Until
-the diagram is redrawn, a disagreement between the two on a marked section
-means the diagram lags, not that this document is wrong. The README is in the
-same state and says nothing about the redesign yet; that is deliberate --
-both catch up once the specification has stopped moving and an
-implementation exists to check it against. Sections not marked are
-unchanged by the redesign and the diagram remains authoritative for them.
+**The sections marked *redesign* specify the fund design (§4.7) that
+replaces the delegate design, decided 2026-09-28 and implemented
+2026-09-29.** The diagram and the README were redrawn for it on 2026-09-29,
+once the implementation existed to check them against, and the sentence
+above holds again for every section. The devnet deployment and the published
+`0.1.x` artifacts remain the delegate design until the next publish.
 
 **Why the redesign, in one paragraph.** The delegate design borrowed its
 authority model from two things this project does not control: SPL Token's
@@ -821,14 +818,15 @@ likely to be wanted.
   transactions -- withdraw, close, renew -- for a wallet to sign through
   Wallet Standard on a desktop or in the wallet's own browser on a phone. It
   fetches from RPC once on load. Hostable anywhere and self-hostable
-  trivially; a small reference project rather than part of this library. - **A
-  wallet that knows the program.** The page above is what a wallet would
+  trivially; a small reference project rather than part of this library.
+- **A wallet that knows the program.** The page above is what a wallet would
   absorb: show the reader's funds beside their token balances, and their
   meters as the running commitments they are. Nothing in the program or this
   library needs to change for that; it is a wallet vendor's opportunity, and
   the reason the reader-facing design was kept to things a Solana Pay scan can
-  express. - **Push in place of the continue control.** The websocket relay in
-  §4.9. - **A card origin.** A shared origin holding one browser key for every
+  express.
+- **Push in place of the continue control.** The websocket relay in §4.9.
+- **A card origin.** A shared origin holding one browser key for every
   site, reached by redirect, so that a second site costs zero clicks rather
   than one scan. Considered and declined 2026-09-28: it is a service someone
   owns, a party in the sign-in path, a parallel project, and a dependency on
@@ -1445,18 +1443,20 @@ Every claim this document makes about the program is pinned by a test in
   error -- and `Expired` at the boundary, one second either side of
   `expiry`, so that `can_meter`'s clock argument and the program's
   `Clock::get()` are known to agree on `<=`
-- the fund's seeds sign the transfer: a settle against a fund whose token
-  account was not created by `open_fund` must fail, and one whose reader
-  differs from the fund's must fail, because those are the two ways a
-  transfer authority can be wrong now that there is no delegate
+- the fund's seeds sign the transfer, and only for the fund's own token
+  account: a settle naming another token account must fail, and so must one
+  that substitutes another fund for the one the meter names, because those
+  are the two ways a transfer authority can be wrong now that there is no
+  delegate
 - `open_meter` and `renew_meter` refuse a fund whose mint is not the
   site's, with `MintMismatch`, and `open_fund` refuses an index the reader
   already holds
 - who may sign `close_meter`: the reader, the meter's key, and nobody
   else, each as a LiteSVM case
-- `verify_key` against the RFC 8032 test vectors, and against a signature
-  made by the same key material through `ed25519-dalek` in the test crate,
-  so that the crate's dependency and the library's use of it agree
+- `verify_key` against a signature made by a `solana-keypair` `Keypair`,
+  so that the library's Ed25519 and the ecosystem's agree; the RFC 8032
+  vectors are pinned in the client's own tests, and again in the PHP
+  port's
 
 The last of the preflight items is the point of the exercise. A predicate
 that disagrees with the program is worse than no predicate.

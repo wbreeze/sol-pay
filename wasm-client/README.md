@@ -25,8 +25,8 @@ which add `--locked` and, for the program, everything the LiteSVM harness
 needs.
 
 `examples/open_meter.rs` is the browser's half of an integration in about
-sixty lines: derive the addresses, convert the amount, build the two
-instructions a reader signs, stop. It is also a check on this crate's public
+a hundred and thirty lines: derive the addresses, convert the amounts, build the three
+instructions a site's server composes for a reader's wallet to sign, stop. It is also a check on this crate's public
 surface. An example links the library as an external crate, so it reaches only
 what an integrator can reach, and `cargo test` builds it -- so a change that
 breaks a real call site fails the test run rather than waiting for someone to
@@ -47,14 +47,14 @@ await init();
 
 const pay = new PayOnChain();
 
-// approve must come first: it is what makes the reader chargeable later.
+// The transaction a reader's wallet signs, composed by the site's server
+// for a Solana Pay transaction request. The fund must exist before money
+// lands in it, so open_fund comes first; openFundAndDeposit is that pair.
+const fund = pay.deriveFundAddress(reader, mint, index);
 const ixs = [
-  pay.approveChecked(readerAta, mint, reader, site, limit, 6),
-  pay.openMeter(site, reader, readerAta, limit),
+  ...pay.openFundAndDeposit(reader, mint, index, readerAta, deposit, 6),
+  pay.openMeter(site, reader, fund, browserKey, limit, expiry),
 ];
-
-// or, the same pair in the right order:
-const same = pay.approveAndOpen(readerAta, mint, reader, site, limit, 6);
 ```
 
 That match is an agreement neither package declares -- this crate depends on no
@@ -116,8 +116,7 @@ const wasmPath = require.resolve('sol-pay-client/sol_pay_client_bg.wasm');
 await init({ module_or_path: await readFile(wasmPath) });
 
 const pay = new PayOnChain();
-const ix = pay.meterAndSettle(
-  site, authority, reader, readerAta, treasury, mint, items);
+const ix = pay.meterAndSettle(site, authority, fund, treasury, mint, items);
 ```
 
 Do that once at startup rather than per request. `init` returns early if the
@@ -126,10 +125,11 @@ module is already there, but the file read does not.
 The object form matters: passing the bytes positionally still works and warns
 that it is deprecated.
 
-What a server actually reaches for is `meterAndSettle` and `initializeSite`,
-the decoders, preflight, and `cause`. The reader-signed builders ship in the
-same bundle and are not yours to call -- those are signed in a browser by a
-wallet adapter, whatever the server runs.
+A server reaches for nearly everything: `meterAndSettle` and
+`initializeSite`, which the site authority signs; the setup builders, which it
+composes for the reader's wallet to sign; `verifyKey`, for the key proof; and
+the decoders, preflight and `cause`. The page needs only `closeMeter`, to sign
+with its browser key when the reader signs out.
 
 `bin/test-node` is the check that keeps this section honest, and the
 `node conformance` workflow runs it on the LTS Node lines. It is not drift
@@ -167,7 +167,7 @@ not a reason to be unable to use the package.
 In Rust the free functions in `core::pda`, `core::ix`, `core::tx` and
 `core::error` are the same calls against the canonical deployment on SPL Token.
 In JavaScript the calls that depend on either live only on the class; decoding,
-unit conversion, preflight and `diagnose` stay free exports, because they are
+unit conversion, preflight and `verifyKey` stay free exports, because they are
 the same whoever deployed the program.
 
 **Get the token program wrong and every instruction for that mint fails at the
@@ -182,48 +182,44 @@ if (!pay.ownsMint(mintAccount.owner)) { /* wrong token program */ }
 The program id has no equivalent check. Confirming a deployment exists needs a
 network, and this crate does not have one.
 
-The reader's wallet address is the only thing the library needs to identify a
-meter. Where that address came from -- a login, an SSO session, a wallet
-sign-in -- is the site's business, and this crate has no opinion about it. See
-`SPEC.md` §4.
+A meter is identified by its site and fund, and the key proof says which
+browser holds it: the page signs a nonce from the server with its browser key,
+and `verifyKey` checks the signature against the key the meter names. Anything
+more the site knows about the reader -- a login, an SSO session -- is the
+site's business, and this crate has no opinion about it. See `SPEC.md` §4 and
+§6.6.
 
-Sign In With Solana in particular: this crate neither verifies a sign-in
-message nor builds one. Both halves are the same byte-exact format, and
-whichever library you verify with builds it too -- a second definition here
-would only disagree with yours eventually. `SPEC.md` §6.6 names what to use
-and the three things that are easy to get wrong.
-
-Signing is deliberately not here. Wallet Standard is browser JavaScript, so
-the wallet adapter assembles and signs; this crate decides *what* gets signed.
+Signing is deliberately not here. The reader's wallet signs in the wallet, by
+a Solana Pay scan, and the page signs with its own key through WebCrypto; this
+crate decides *what* gets signed, and checks a key proof, which needs no
+secret.
 
 Nor is randomness, or any other source of ambient state: every function in the
 crate is a pure function of its arguments.
 
 ## Four things to know
 
-**The approve must precede the program instruction.** `open_meter` and
-`renew_meter` both verify on chain that the reader's token account names the
-meter PDA as delegate for the full limit. They fail rather than trust the
-client to have done it.
-
-**A token account has exactly one delegate.** `approve` replaces rather than
-adds. That is the SPL account layout, identical under Token-2022, and not
-something this program chose. A reader therefore holds one active meter per
-token account, and a second site's `approve` silently repoints the delegate --
-the first site's next settle then fails inside the token program, at the
-transfer, rather than at `open_meter` where the delegate is checked. The
-limit is per token account and not per wallet, and that difference is the whole
-answer to the question below.
+**`open_fund` must precede the deposit.** The fund's token account is created
+by `open_fund`, and a transfer to an account that does not exist fails. The
+two go in one transaction, in that order; `openFundAndDeposit` (`core::tx`)
+returns the pair already ordered. `open_meter` needs the fund to exist, not
+to hold money, so it can follow either way.
 
 **The limit is trust, not pacing.** `meter_and_settle` takes an `items`
 count and is signed by the site authority alone. The reader is not present and
 does not approve each charge. Nothing bounds that count except
 `used + charge <= limit`, so a site can draw straight to the limit in a single
-instruction whenever it likes.
+instruction whenever it likes, until the expiry.
 
 The limit is therefore the reader's exposure to the site, not a budget that
 paces their reading. A site explaining the limit to a reader should say so
 plainly, and should expect the honest number to be small.
+
+**The browser key moves no money.** It signs the key proof and `close_meter`,
+and the program refuses it for everything else. The page keeps it
+(`SPEC.md` §4.8 recommends a non-extractable WebCrypto key in IndexedDB); the
+server checks proofs with `verifyKey` against the `key` the meter names, and
+submits a key-signed `closeMeter` as fee payer, since the key holds no SOL.
 
 **Transaction logs are yours to filter.** This crate does not read or parse
 transaction logs, and diagnosing a failed metering call means looking at them:
@@ -232,12 +228,12 @@ the numeric error code alone does not say which program raised it, so
 program are told apart by their context in the logs, not by their numbers.
 
 Handling that is the integrator's job, and it comes with an exposure worth
-naming. A transaction's logs and its account list carry the reader's wallet
-address, and the program's `emit!` events carry amounts -- `used`, `paid`,
-`transferred` -- as base64 `Program data:` lines that anyone can decode. None
-of it is secret; it is all on chain already. But raking raw logs into
-application logs, an error tracker, or an analytics pipeline copies reader
-wallet addresses and spending history into systems that were never scoped to
+naming. A transaction's account list carries the fund's address, and the fund
+account names the reader's wallet; the program's `emit!` events carry amounts
+-- `used`, `paid`, `transferred` -- as base64 `Program data:` lines that anyone
+can decode. None of it is secret; it is all on chain already. But raking raw
+logs into application logs, an error tracker, or an analytics pipeline copies
+reader addresses and spending history into systems that were never scoped to
 hold them, and it does so on a site that may well have adopted this design to
 avoid exactly that kind of baggage.
 
@@ -247,58 +243,31 @@ transaction logs to a third-party service.
 ## Can a reader be metered by more than one site at once?
 
 Yes. It is the first thing anyone evaluating this asks, and the answer lives in
-the account constraints rather than in the prose, so it is worth stating here.
+the seeds rather than in the prose.
 
-Nothing in this program requires the associated token account. `open_meter`,
-`renew_meter` and `meter_and_settle` each constrain `reader_token_account` by
-exactly two things:
-
-```rust
-constraint = reader_token_account.owner == reader.key(),
-constraint = reader_token_account.mint  == site.mint,
-```
-
-Any token account the reader owns for the site's mint is acceptable, and a
-wallet may own arbitrarily many token accounts for one mint -- the ATA is
-merely the canonical one. So one token account per site gives one delegate per
-site, and a reader can hold as many concurrent meters as they have token
-accounts. `Meter` does not record which account was used, either, so a
-meter is not bound to one: any account of the reader's, for the site's mint,
-that delegates to the meter PDA will settle.
+A meter's address is `[b"meter", site, fund]`. One fund therefore serves any
+number of sites, with at most one meter at each, and every settle draws from
+the same token account. The reader budgets once, by what they put in the fund,
+and bounds each site separately, by the limit and expiry of its meter. The
+fund's `meters` count says how many are open, and `close_fund` refuses while
+any are.
 
 What that costs, stated so nobody discovers it later:
 
-- **Rent.** A plain SPL token account is 165 bytes, roughly 0.002 SOL,
-  recoverable on close. Token-2022 accounts carrying extensions are larger.
-- **Split balances.** Balance is per account, not per wallet, so the reader
-  decides in advance how much to park with each site. That is a second
-  budgeting decision on top of the limit, and a worse one, because most wallet
-  interfaces do not show it.
-- **Wallet support.** Wallets surface the ATA. Auxiliary token accounts for the
-  same mint are second-class nearly everywhere, and creating and funding one is
-  not a viable onboarding step for an ordinary reader today.
-- **A second thing for the site to store.** The reader's wallet address is the
-  only input this library needs *while everyone uses the ATA*. A site that
-  supports auxiliary accounts must also store which token account each reader
-  uses, because `meter_and_settle` takes it as an account and the meter does
-  not record it.
+- **Shared money.** The limits are per site, the balance is not. A site that
+  draws to its limit leaves less for the others, and a settle at one site can
+  fail because another drew first. The reader's total exposure is the smaller
+  of the fund's balance and the sum of the limits.
+- **One mint per fund.** A fund meets only sites that price in its mint;
+  `open_meter` fails with `MintMismatch` otherwise. A reader of sites in two
+  coins holds two funds.
+- **Rent.** A fund is a program account plus a token account, and each meter
+  is a program account, all paid by the reader and returned on close.
 
-So the honest summary is that the constraint is per token account rather than
-per wallet, the workaround exists on chain today, and it is not yet practical
-in an ordinary reader's wallet. Both halves need saying: the first alone
-over-sells, the second alone is the objection.
-
-Removing the friction instead of routing around it would mean changing the
-design. The two shapes that would are worth naming, so that the current one is
-visibly a choice rather than an oversight. A **per-reader delegate PDA**, seeded
-`[b"delegate", reader]` instead of being the per-site meter PDA, would let a
-single approval on the reader's ATA cover every site on the deployment, each
-site still bounded on chain by its own `Meter.limit` -- at the cost of a
-shared allowance, so a site that draws hard leaves less for the others, and the
-reader's total exposure becomes the allowance rather than the sum of the limits
-they agreed to. Or a **per-site escrow** the reader tops up, which removes the
-delegate question entirely and gives up the property the whole design rests on:
-that the money stays in the reader's wallet until it is spent.
+A reader who wants separate budgets, or two devices at one site at the same
+time, holds a second fund in the same mint under another index (`SPEC.md`
+§4.7, §4.8). Which fund a transaction uses is always the reader's choice,
+stated on the page; the server never defaults one.
 
 ## Publishing
 
@@ -352,6 +321,7 @@ resolution. Nothing here needs checking before use.
 | `wasm-bindgen` | 0.2.127 |
 | `serde-wasm-bindgen` | 0.6.5 |
 | `serde_bytes` | 0.11.19 |
+| `ed25519-dalek` | 2.2.0 |
 
 `bin/build-rust` and `bin/test-rust` pass `--locked`, so a build that would
 have to re-resolve fails instead of quietly drifting. The toolchain is pinned

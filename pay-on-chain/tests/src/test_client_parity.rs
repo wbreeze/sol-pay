@@ -481,3 +481,24 @@ fn client_refuses_an_account_of_another_type() {
     assert!(client_state::Meter::decode(&bytes).is_err(), "a Site is not a Meter");
     assert!(client_state::Fund::decode(&bytes).is_err(), "a Site is not a Fund");
 }
+
+/// SPEC §8: `verify_key` against a signature made by the key material the
+/// rest of Solana uses -- `solana-keypair`, which signs with ed25519-dalek
+/// under the hood -- so the crate's dependency and the ecosystem's agree.
+/// The RFC 8032 vectors are pinned in the client's own tests.
+#[test]
+fn verify_key_accepts_what_a_solana_keypair_signs() {
+    use sol_pay_client::core::proof::verify_key;
+    use solana_keypair::Keypair;
+    use solana_signer::Signer;
+
+    let key = Keypair::new();
+    let message = b"site-issued nonce 7f3a, issued 1800000000";
+    let signature = key.sign_message(message);
+    let signature: [u8; 64] = signature.as_ref().try_into().unwrap();
+    let public = key.pubkey().to_bytes();
+
+    assert!(verify_key(&public, message, &signature));
+    assert!(!verify_key(&public, b"another message", &signature));
+    assert!(!verify_key(&Keypair::new().pubkey().to_bytes(), message, &signature));
+}

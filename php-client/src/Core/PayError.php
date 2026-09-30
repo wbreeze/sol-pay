@@ -19,11 +19,14 @@ enum PayError: int
     case MinimumBelowThreshold = 6001;
     case ZeroItemPrice = 6002;
     case LimitReached = 6003;
-    case DelegateNotSet = 6004;
-    case DelegateMismatch = 6005;
-    case DelegateAllowanceTooLow = 6006;
-    case LimitBelowUsage = 6007;
-    case MathOverflow = 6008;
+    case LimitBelowUsage = 6004;
+    case MathOverflow = 6005;
+    case MintMismatch = 6006;
+    case Expired = 6007;
+    case ExpiryInPast = 6008;
+    case Unauthorized = 6009;
+    case FundNotEmpty = 6010;
+    case FundHasMeters = 6011;
 
     public static function fromCode(int $code): ?self
     {
@@ -42,11 +45,14 @@ enum PayError: int
             self::MinimumBelowThreshold => 'Site minimum limit must exceed the collection threshold',
             self::ZeroItemPrice => 'Item price must be greater than zero',
             self::LimitReached => 'Charge would carry usage past the authorized limit',
-            self::DelegateNotSet => 'Reader token account names no delegate',
-            self::DelegateMismatch => 'Reader token account delegates a different authority',
-            self::DelegateAllowanceTooLow => 'Delegated allowance does not cover the outstanding limit',
             self::LimitBelowUsage => 'New limit does not cover usage already accrued',
             self::MathOverflow => 'Arithmetic overflow',
+            self::MintMismatch => 'The site and the fund are in different mints',
+            self::Expired => 'The meter is past its expiry',
+            self::ExpiryInPast => 'The expiry has already passed',
+            self::Unauthorized => "Signer is neither the fund's reader nor the meter's key",
+            self::FundNotEmpty => 'The fund still holds a balance',
+            self::FundHasMeters => 'The fund still has meters open',
         };
     }
 }

@@ -8,6 +8,12 @@ namespace SolPay\Core;
 enum BlockedKind
 {
     /**
+     * The meter is past its expiry. The remedy is a renewal, as for a full
+     * meter, but the reader is told something different.
+     */
+    case Expired;
+
+    /**
      * The charge would carry `used` past the authorized limit. The program
      * refuses the whole call rather than metering part of it, so the site
      * must renew or stop, not meter fewer items and hope.

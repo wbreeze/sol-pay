@@ -1,7 +1,8 @@
 //! Generates conformance vectors for php-client to check itself against:
-//! PDA derivation and one instruction from the published `sol-pay-client`
-//! crate (temporarily the local one -- see the note in Cargo.toml), plus
-//! one genuine Anchor-serialized `Site`/`Meter` account and
+//! PDA derivation (sites, funds with their token accounts, meters) and every
+//! instruction builder from the published `sol-pay-client` crate
+//! (temporarily the local one -- see the note in Cargo.toml), plus genuine
+//! Anchor-serialized `Site`, `Fund` and `Meter` accounts and
 //! the program's own error code tables, both sourced directly from the
 //! `pay-on-chain` program crate rather than copied by hand.
 //!
@@ -139,6 +140,24 @@ fn emit_transaction(
     println!("    }}{sep}");
 }
 
+/// One built instruction, with its account flags, as a JSON object body.
+fn emit_instruction(name: &str, inst: &Instruction, sep: &str) {
+    println!("    \"{name}\": {{");
+    println!("      \"program_id\": \"{}\",", inst.program_id);
+    println!("      \"data_hex\": \"{}\",", hex(&inst.data));
+    println!("      \"accounts\": [");
+    let last = inst.accounts.len() - 1;
+    for (k, a) in inst.accounts.iter().enumerate() {
+        let c = if k == last { "" } else { "," };
+        println!(
+            "        {{\"pubkey\":\"{}\",\"is_signer\":{},\"is_writable\":{}}}{}",
+            a.pubkey, a.is_signer, a.is_writable, c
+        );
+    }
+    println!("      ]");
+    println!("    }}{sep}");
+}
+
 fn main() {
     let n: u32 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(400);
 
@@ -155,14 +174,34 @@ fn main() {
     }
     println!("  ],");
 
+    // Funds, and each one's token account. The index walks 0..=255 and wraps,
+    // so every value of the one-byte seed is exercised; the token account is
+    // the associated token account of the fund PDA, a derivation under a
+    // second program that a port has to get right too.
+    //
+    // "payer" is a seed label, not a name: the tags are frozen with every
+    // literal hardcoded against these inputs, so the 2026-09-29 rename
+    // (SPEC.md §4.11) left them alone.
+    println!("  \"fund\": [");
+    for i in 0..n {
+        let reader = seeded("payer", i);
+        let mint = seeded("mint", i);
+        let index = (i % 256) as u8;
+        let (addr, bump) = pda::fund_address(&reader, &mint, index);
+        let token_account = pda::fund_token_account(&addr, &mint);
+        let sep = if i + 1 == n { "" } else { "," };
+        println!(
+            "    {{\"i\":{i},\"index\":{index},\"address\":\"{addr}\",\"bump\":{bump},\"token_account\":\"{token_account}\"}}{sep}"
+        );
+    }
+    println!("  ],");
+
+    // One meter per site per fund: seeded by the site and the fund above.
     println!("  \"meter\": [");
     for i in 0..n {
         let (site, _) = pda::site_address(&seeded("authority", i));
-        // "payer" is a seed label, not a name: the tags are frozen with every
-        // literal hardcoded against these inputs, so the 2026-09-29 rename
-        // (SPEC.md §4.11) left them alone.
-        let reader = seeded("payer", i);
-        let (addr, bump) = pda::meter_address(&site, &reader);
+        let (fund, _) = pda::fund_address(&seeded("payer", i), &seeded("mint", i), (i % 256) as u8);
+        let (addr, bump) = pda::meter_address(&site, &fund);
         let sep = if i + 1 == n { "" } else { "," };
         println!("    {{\"i\":{i},\"address\":\"{addr}\",\"bump\":{bump}}}{sep}");
     }
@@ -176,7 +215,10 @@ fn main() {
     let reader_ata = seeded("payer-ata", 0);
     let treasury = seeded("treasury", 0);
     let mint = seeded("mint", 0);
-    let inst = ix::meter_and_settle(&site, &authority, &reader, &reader_ata, &treasury, &mint, 7);
+    let key = seeded("key", 0);
+    let (fund, _) = pda::fund_address(&reader, &mint, 0);
+    const EXPIRY: i64 = 1_800_003_600;
+    let inst = ix::meter_and_settle(&site, &authority, &fund, &treasury, &mint, 7);
     println!("  \"meter_and_settle\": {{");
     println!("    \"items\": 7,");
     println!("    \"program_id\": \"{}\",", inst.program_id);
@@ -193,6 +235,25 @@ fn main() {
     println!("    ]");
     println!("  }},");
 
+    // Every other builder, once each, so a port that composes the reader's
+    // transaction (SPEC §4.9) is checked on all of them and not only on the
+    // one the site authority signs. Same inputs as above throughout.
+    let open_fund = ix::open_fund(&reader, &mint, 0);
+    let deposit = ix::deposit(&reader_ata, &reader, &fund, &mint, 2_000_000, 6);
+    let open_meter = ix::open_meter(&site, &reader, &fund, &key, 1_000_000, EXPIRY);
+    let close_meter_by_key = ix::close_meter(&key, &reader, &site, &fund);
+    println!("  \"instructions\": {{");
+    emit_instruction("initialize_site", &ix::initialize_site(&authority, &mint, &treasury, 10_000, 250_000, 500_000), ",");
+    emit_instruction("open_fund", &open_fund, ",");
+    emit_instruction("deposit", &deposit, ",");
+    emit_instruction("withdraw", &ix::withdraw(&reader, &mint, 0, &reader_ata, 1_500_000), ",");
+    emit_instruction("close_fund", &ix::close_fund(&reader, &mint, 0), ",");
+    emit_instruction("open_meter", &open_meter, ",");
+    emit_instruction("renew_meter", &ix::renew_meter(&site, &reader, &fund, &key, 1_200_000, EXPIRY + 3_600), ",");
+    emit_instruction("close_meter_by_reader", &ix::close_meter(&reader, &reader, &site, &fund), ",");
+    emit_instruction("close_meter_by_key", &close_meter_by_key, "");
+    println!("  }},");
+
     // Compiled legacy transaction messages, and the wire bytes around them.
     // These are the vectors `SolPay\Tx` gets written against, and they exist
     // *before* the encoder does on purpose: writing the compiler first means
@@ -207,8 +268,11 @@ fn main() {
     // accounts, and length-prefix everything with compact-u16.
     //
     // Three cases, because one instruction signed and paid for by one key
-    // leaves most of that unexercised. Between them they cover every branch:
-    // Fixed, and seeded like every other input here so the PHP side can
+    // leaves most of that unexercised; between them they cover every branch.
+    // Two more since the fund redesign (2026-09-29) pin the transactions a
+    // port now has to compose for the reader and for sign-out.
+    //
+    // The blockhash is fixed, and seeded like every other input here so the PHP side can
     // reproduce it. The blockhash is passed in and never fetched -- SPEC §7.
     let blockhash = Hash::new_from_array(seeded_bytes("blockhash", 0));
     let separate_payer = seeded("fee-payer", 0);
@@ -253,6 +317,31 @@ fn main() {
         &[init, inst.clone()],
         &separate_payer,
         &blockhash,
+        ",",
+    );
+
+    // 4. The reader's setup transaction, the one a site's server composes and
+    //    the wallet fetches and signs (SPEC §4.9): open the fund, deposit into
+    //    it, open the meter. Three programs invoked, the reader the only
+    //    signer and the fee payer, and the associated token program in the
+    //    key list without being invoked at top level -- `open_fund` names it
+    //    as an account for its CPI.
+    emit_transaction(
+        "reader-setup",
+        &[open_fund, deposit, open_meter],
+        &reader,
+        &blockhash,
+        ",",
+    );
+
+    // 5. Sign-out: the browser key signs `close_meter` and holds no SOL, so
+    //    the site's server pays (SPEC §4.8). Two signers, one of them a
+    //    readonly signer that is not the fee payer.
+    emit_transaction(
+        "key-signs-out",
+        std::slice::from_ref(&close_meter_by_key),
+        &authority,
+        &blockhash,
         "",
     );
 
@@ -285,11 +374,32 @@ fn main() {
     println!("    \"bump\": {}", onchain_site.bump);
     println!("  }},");
 
-    // Same discipline for Meter. `site` is the real PDA derived above, so
-    // this is internally consistent with the meter_and_settle vector too.
+    // Same discipline for Fund and Meter. `site` and `fund` are the real PDAs
+    // derived above, so these are internally consistent with the instruction
+    // vectors too.
+    let onchain_fund = pay_on_chain::state::Fund {
+        reader,
+        mint,
+        index: 0,
+        meters: 2,
+        bump: 252,
+    };
+    let mut fund_bytes = pay_on_chain::state::Fund::DISCRIMINATOR.to_vec();
+    fund_bytes.extend(onchain_fund.try_to_vec().expect("Fund serializes"));
+    println!("  \"fund_account\": {{");
+    println!("    \"data_hex\": \"{}\",", hex(&fund_bytes));
+    println!("    \"reader\": \"{reader}\",");
+    println!("    \"mint\": \"{mint}\",");
+    println!("    \"index\": {},", onchain_fund.index);
+    println!("    \"meters\": {},", onchain_fund.meters);
+    println!("    \"bump\": {}", onchain_fund.bump);
+    println!("  }},");
+
     let onchain_meter = pay_on_chain::state::Meter {
         site,
-        reader,
+        fund,
+        key,
+        expiry: EXPIRY,
         limit: 1_000_000,
         used: 250_000,
         paid: 100_000,
@@ -300,7 +410,9 @@ fn main() {
     println!("  \"meter_account\": {{");
     println!("    \"data_hex\": \"{}\",", hex(&meter_bytes));
     println!("    \"site\": \"{site}\",");
-    println!("    \"reader\": \"{reader}\",");
+    println!("    \"fund\": \"{fund}\",");
+    println!("    \"key\": \"{key}\",");
+    println!("    \"expiry\": {},", onchain_meter.expiry);
     println!("    \"limit\": {},", onchain_meter.limit);
     println!("    \"used\": {},", onchain_meter.used);
     println!("    \"paid\": {},", onchain_meter.paid);
@@ -309,19 +421,22 @@ fn main() {
 
     // Every PayError variant's real Anchor code -- ERROR_CODE_OFFSET (6000)
     // plus C-like declaration order -- read from pay_on_chain's own enum,
-    // the same arithmetic Anchor itself uses, rather than nine hardcoded
-    // numbers someone has to keep in step by hand.
+    // the same arithmetic Anchor itself uses, rather than hardcoded numbers
+    // someone has to keep in step by hand.
     use pay_on_chain::errors::PayError;
     let pay_errors: &[(&str, u32)] = &[
         ("LimitBelowMinimum", PayError::LimitBelowMinimum as u32 + anchor_lang::error::ERROR_CODE_OFFSET),
         ("MinimumBelowThreshold", PayError::MinimumBelowThreshold as u32 + anchor_lang::error::ERROR_CODE_OFFSET),
         ("ZeroItemPrice", PayError::ZeroItemPrice as u32 + anchor_lang::error::ERROR_CODE_OFFSET),
         ("LimitReached", PayError::LimitReached as u32 + anchor_lang::error::ERROR_CODE_OFFSET),
-        ("DelegateNotSet", PayError::DelegateNotSet as u32 + anchor_lang::error::ERROR_CODE_OFFSET),
-        ("DelegateMismatch", PayError::DelegateMismatch as u32 + anchor_lang::error::ERROR_CODE_OFFSET),
-        ("DelegateAllowanceTooLow", PayError::DelegateAllowanceTooLow as u32 + anchor_lang::error::ERROR_CODE_OFFSET),
         ("LimitBelowUsage", PayError::LimitBelowUsage as u32 + anchor_lang::error::ERROR_CODE_OFFSET),
         ("MathOverflow", PayError::MathOverflow as u32 + anchor_lang::error::ERROR_CODE_OFFSET),
+        ("MintMismatch", PayError::MintMismatch as u32 + anchor_lang::error::ERROR_CODE_OFFSET),
+        ("Expired", PayError::Expired as u32 + anchor_lang::error::ERROR_CODE_OFFSET),
+        ("ExpiryInPast", PayError::ExpiryInPast as u32 + anchor_lang::error::ERROR_CODE_OFFSET),
+        ("Unauthorized", PayError::Unauthorized as u32 + anchor_lang::error::ERROR_CODE_OFFSET),
+        ("FundNotEmpty", PayError::FundNotEmpty as u32 + anchor_lang::error::ERROR_CODE_OFFSET),
+        ("FundHasMeters", PayError::FundHasMeters as u32 + anchor_lang::error::ERROR_CODE_OFFSET),
     ];
     println!("  \"pay_errors\": [");
     for (k, (name, code)) in pay_errors.iter().enumerate() {

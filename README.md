@@ -1,8 +1,9 @@
 # SolPay
 
-Pay-as-you-go for web content, using the Solana blockchain. A reader's wallet
-pays a small fee per use, the money stays in the reader's wallet until
-it is spent. Nothing in the protocol records who read what.
+Pay-as-you-go for web content, using the Solana blockchain. A reader puts a
+little money in a fund, and each site they read draws a small fee per item
+from it, within a limit the reader sets. The reader can take back what is
+left at any time. Nothing in the protocol records who read what.
 
 This repository delivers `sol-pay` — a metering program on Solana and a client
 library.  A site uses the `sol-pay` client libraries to build the metering
@@ -10,8 +11,11 @@ program instructions and read its accounts.
 
 The program is deployed on devnet at
 [`F8UDAGgxVTm8Vmh4RmskpMBCFqhRvuTqbDxDCj8UMedL`][explorer], which a devnet
-reset can empty without anything here changing. Look at it on Solana Explorer,
-or ask a devnet node yourself:
+reset can empty without anything here changing. That deployment, and the
+published `0.1.x` clients, are the earlier delegate design, which drew from
+the reader's own token account under an SPL approval. The code here replaces it
+with the fund design described below; both are republished together once it
+lands. Look at it on Solana Explorer, or ask a devnet node yourself:
 
 ```
 solana program show F8UDAGgxVTm8Vmh4RmskpMBCFqhRvuTqbDxDCj8UMedL --url devnet
@@ -31,9 +35,11 @@ Two Rust crates, and one PHP port:
   either. Its API specification,
   [`wasm-client/SPEC.md`](wasm-client/SPEC.md), is the document to read before
   the code.
-- [`php-client`](php-client) — a server-side PHP client covering the
-  site-signed half of `wasm-client`'s API: PDA derivation, instruction
-  building, account decoding, preflight, and error mapping, for a PHP server
+- [`php-client`](php-client) — a server-side PHP client covering what a
+  server needs of `wasm-client`'s API: PDA derivation, instruction building
+  (including the reader-signed setup a server composes for a Solana Pay
+  request), account decoding, preflight, error mapping and the key proof,
+  for a PHP server
   with no Rust toolchain and no WASM runtime. Published to Packagist from a
   subtree split; see [`php-client/README.md`](php-client/README.md), and
   [`wasm-client/SPEC.md` §3.1][spec31] for why a port exists at all.
@@ -43,26 +49,35 @@ Two Rust crates, and one PHP port:
 
 ## Payment model
 
-The payment model is that a caller identifies with a wallet.  The wallet pays
-for what they use-- a fee per use. The wallet authorizes a meter allowing
-incremental charges up to a limit.  The site may ask to refresh the limit when
-reaching it.
+A reader moves money once, from their wallet into a *fund*: a token account
+the metering program controls on the reader's behalf. Each site the reader
+reads draws from that fund through a *meter*, which counts *items* at the
+site's price, up to a limit and an expiry the reader set for that site. The
+reader can take back whatever is left, or add to it, whenever they like. See
+[SPEC §4.7, "The fund"][fund].
 
-The metering program accumulates charges. It makes the pre-authorized transfer
-from the wallet when the unpaid total reaches a collection threshold.
-See [SPEC §4.6, "Why there is a collection threshold."][collect]
+[fund]: wasm-client/SPEC.md#47-the-fund-redesign
+
+The metering program accumulates charges on the meter. It transfers from the
+fund to the site's treasury when the unpaid total reaches a collection
+threshold. See [SPEC §4.6, "Why there is a collection threshold."][collect]
 
 [collect]: wasm-client/SPEC.md#46-why-there-is-a-collection-threshold
 
-A site running sol-pay executes code in two places, and they sign different
-things. The browser holds the reader's wallet and never sees the site
-authority; the server holds the site authority and never sees the reader's
-key.
+Three keys sign, and none of them sees another's secret.
 
-| | signs | artifact |
+| | signs | where it runs |
 | --- | --- | --- |
-| Browser | the reader, through a wallet adapter | the npm package |
-| Server | the site authority | the crate, or the PHP port |
+| The reader's wallet | open a fund, deposit, open or renew a meter; withdraw and close a fund | the wallet app, by a Solana Pay scan or tap |
+| The browser key | the key proof, and `close_meter` to sign out | the site's page, through the npm package |
+| The site authority | `meter_and_settle` | the site's server, through the crate or the PHP port |
+
+The browser key is one the site's page generates, for that site on that
+device, and names in the meter. It proves which browser is reading and lets
+the reader leave a machine. It moves no money. See
+[SPEC §4.8, "The key and the expiry"][key].
+
+[key]: wasm-client/SPEC.md#48-the-key-and-the-expiry-redesign
 
 ### Request flow
 
@@ -71,81 +86,81 @@ metered content.
 
 ![pay-as-you-go-state-machine](state-machine.png)
 
-The bold lines show the happy path.  It goes like this:
+The bold lines show the happy path. It goes like this:
 
-- viewer navigates to metered content, and the site knows their wallet address
-- server derives the meter address from the site and wallet addresses,
-  and reads the account
-- server makes one metering call, which raises the usage by the item
-  amount
-- that same call moves money only when the unpaid total has reached a
+- the reader navigates to metered content, and the site knows which meter
+  this browser uses
+- the page signs a nonce from the server with its browser key; the server
+  fetches the meter and checks the signature against the key the meter
+  names, and that the meter has not expired
+- the server makes one metering call, which raises the usage by the item
+  price
+- that same call moves money only when the unpaid total has reached the
   collection threshold. The transfer is a cross-program invocation inside the
-  metering instruction rather than a transaction of its own
+  metering instruction, signed by the fund's own address, rather than a
+  transaction of its own
 - the server delivers the metered content
 
-The diagram assumes the site can map a viewer to a wallet address, and says
-nothing about how. Accounts, login, SSO — whatever the site already runs.
-That mapping is the integrator's one obligation; everything else starts from
-the address. See [`wasm-client/SPEC.md` §4][spec4].
+A browser with no meter, or one whose proof fails, goes to the set-meter
+page. It states the cost per item and asks for a limit, an expiry, an amount
+to deposit, and which of the reader's funds to use. The page generates its
+browser key and shows a Solana Pay link. The reader's wallet fetches one
+transaction from the site's server -- open the fund if it is new, deposit,
+open the meter naming the key -- and the reader signs it in the wallet, on
+whatever device the wallet is. The reader then returns to the page and
+clicks continue; the server fetches the meter once. Nothing polls. See
+[SPEC §4.9][scan].
 
-[spec4]: wasm-client/SPEC.md#4-what-the-integrator-owns
+[scan]: wasm-client/SPEC.md#49-one-wallet-gesture-and-no-polling-redesign
 
-Every meter is derived from the site and the reader's wallet address, so
-identifying the viewer *is* finding the meter. There is no session token
-in the protocol and nothing to look up but an account.
+Which fund is always the reader's choice, stated on the page. The server
+never picks one for them.
 
-Only two authorizations appear in the flow: the site's authority over its
-own meters, which is what lets it meter, and the reader's authorization of
-the spend, which is the SPL approval the whole design rests on.
-
-Viewers without a meter go to the set-meter page. It includes details
-about the cost and lets the viewer choose a limit. Setting the meter creates
-the meter account and takes the reader's authorization of the spend, both in
-one transaction. The authorization has to come first. The program checks
-that it did.
-
-The dialog and the server must enforce a minimum for
-the limit amount that is some multiple of the item amount.
-A multiple of one does not make much sense. Forty or fifty multiple yields a
-better minimum. The program itself requires the minimum to exceed the
-collection threshold and refuses `initialize_site` otherwise
+The page and the server must enforce a minimum for the limit that is some
+multiple of the item price. A multiple of one does not make much sense. Forty
+or fifty yields a better minimum. The program itself requires the minimum to
+exceed the collection threshold and refuses `initialize_site` otherwise
 (`MinimumBelowThreshold`): a minimum at or below the threshold would let a
 reader sign up for less than a single collection, so the first settle could
 never fire within their limit.
 
-With the account set-up and authorized, the viewer returns to the happy path.
+When a reader reaches their limit or the expiry, or the fund runs short, the
+server shows a screen with the usage so far and the fund's balance. It offers
+to renew the meter -- a new limit, a new expiry, a new device's key -- with
+the same kind of scan, or to sign out.
 
-When a viewer reaches their limit, the server shows them a screen that
-provides a wrapup of the usage. It offers to renew the limit, at the same
-amount or a new one, or to close the meter.
-
-Closing forgives whatever is unpaid. That is a decision rather than an
-omission. A transfer can always be refused -- a short balance, an approval
-revoked or replaced, a frozen account -- and a close is where those are most
-likely. A close carrying a transfer could fail and leave the reader unable
-to leave. `close_meter` therefore emits `Closed { forgiven }` and moves no
-money.
+Signing out closes the meter. The browser key signs it and the site's server
+pays the fee. Closing forgives whatever is unpaid, which is always below the
+collection threshold. That is a decision rather than an omission: a close
+carrying a transfer could fail and leave the reader unable to leave.
+`close_meter` therefore emits `Closed { forgiven }`, moves no money, and
+returns the meter's rent to the reader.
 
 ## What the integrator owns
 
 This is a library, not an application. The cyan nodes in the state diagram --
-`set_meter`, `manage_meter`, `metered_page` -- are screens the *integrator*
-builds. They appear in the design only to establish what the library owes
-them: the data needed to render each screen, and the operations its controls
-invoke. Nothing else. The library does not route, render, format, or decide.
+`set_meter`, `continue`, `manage_meter`, `metered_page` -- are screens the
+*integrator* builds. They appear in the design only to establish what the
+library owes them: the data needed to render each screen, and the operations
+its controls invoke. Nothing else. The library does not route, render,
+format, or decide.
 
-The obligation that comes with that is a single sentence: **keep a mapping
-from your viewer to a wallet address, and hand us the address.** The payment
-core needs exactly one input. `meter_and_settle` derives the meter from
-`[b"meter", site, reader]`. Its accounts carry no session token of
-any kind. Who the visitor is stays the site's own affair -- accounts, login,
-SSO, whatever it already runs.
+The obligation that comes with that: **remember which meter this browser
+uses, and serve the Solana Pay transaction request.** `meter_and_settle`
+takes the meter's address, derived from `[b"meter", site, fund]`. The key
+proof tells the server that this browser is the one the meter names. There
+is no session token in the protocol and nothing to look up but an account.
+Anything more the site knows about the reader -- accounts, login, SSO -- stays
+the site's own affair. See [`wasm-client/SPEC.md` §4][spec4].
+
+[spec4]: wasm-client/SPEC.md#4-what-the-integrator-owns
 
 This library is authoritative about instruction encoding, PDA derivation,
-account layout, the rule that `approve` must precede `open_meter` in the
-same transaction, and the arithmetic that decides whether a meter call will
-succeed. It has no view on what limit to suggest, how to format an amount, when
-to show the meter, or what to do when a payment fails.
+account layout, the rule that `open_fund` must precede the deposit in the
+same transaction, the key proof, and the arithmetic that decides whether a
+meter call will succeed. It has no view on what limit or expiry to suggest,
+how to format an amount, when to show the meter, or what to do when a
+payment fails.
 
 Metering may be an additional way to pay. A publisher with subscriptions may
 opt to keep them; metering is what it offers the reader who will
@@ -161,7 +176,9 @@ articles on devnet, built on the PHP port. It is a reference integration:
 everything this repository declines to supply — RPC, the wallet adapter, the
 session, the viewer-to-wallet map, the decision to meter a request, error
 attribution, log hygiene — is there, in one place, in the smallest honest
-form. Three of its screens are the three this library names.
+form. It is built on the published `0.1.x` delegate design and has not
+followed the fund redesign yet, so its screens and its viewer-to-wallet map
+are the earlier flow's.
 
 [demo]: https://github.com/wbreeze/sol-pay-demonstrator
 

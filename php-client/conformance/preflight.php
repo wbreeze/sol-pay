@@ -22,8 +22,9 @@ declare(strict_types=1);
  * makes a moved verdict a reviewable diff rather than a silent change.
  *
  * What this does not claim: coverage is exactly what the recorded cases touch.
- * `required_allowance` is not recorded, being the identity function, and a
- * predicate is only pinned at the states the harness happens to reach. Adding
+ * A predicate is only pinned at the states the harness happens to reach --
+ * since the fund redesign those include the expiry second and the one after
+ * it, each case carrying the `now` it was asked at. Adding
  * a case to `test_preflight_fixture.rs` is what widens it -- one place, both
  * ports.
  *
@@ -86,7 +87,7 @@ foreach ($fixture['cases'] as $case) {
 
     // `can_meter` is a value, not an exception: null when the call would go
     // through, otherwise which constraint stopped it and by how much.
-    $blocked = Preflight::canMeter($meter, $site, $items);
+    $blocked = Preflight::canMeter($meter, $site, $items, $case['now']);
     $want = $case['can_meter'];
     if ($want === null && $blocked !== null) {
         $wrong[] = sprintf('can_meter blocked (%s) a call the program accepted', $blocked->kind->name);
@@ -97,13 +98,10 @@ foreach ($fixture['cases'] as $case) {
         $expect('can_meter over', $blocked->over, $want['over']);
     }
 
-    // Both shortfalls at once, because SPL reports either as custom error 1
-    // and the site's response differs: top up, or re-authorize.
-    $d = $case['diagnose'];
-    $shortfall = Shortfall::diagnose($account, $d['unpaid']);
-    $expect('balance_short', $shortfall->balanceShort, $d['balance_short']);
-    $expect('allowance_short', $shortfall->allowanceShort, $d['allowance_short']);
-    $expect('delegate_present', $shortfall->delegatePresent, $d['delegate_present']);
+    // What the fund's token account lacks for a settle of the unpaid balance:
+    // the number beside SPL's custom error 1, now that nothing else can make
+    // a settle short.
+    $expect('shortfall', Shortfall::of($account, $meter->unpaid()), $case['shortfall']);
 
     check(
         "$name",

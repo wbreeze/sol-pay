@@ -22,6 +22,11 @@ final class Blocked
         return new self(BlockedKind::LimitReached, $over);
     }
 
+    public static function expired(): self
+    {
+        return new self(BlockedKind::Expired);
+    }
+
     public static function overflow(): self
     {
         return new self(BlockedKind::Overflow);
@@ -30,6 +35,7 @@ final class Blocked
     public function __toString(): string
     {
         return match ($this->kind) {
+            BlockedKind::Expired => 'the meter is past its expiry',
             BlockedKind::LimitReached => "charge exceeds the authorized limit by {$this->over}",
             BlockedKind::Overflow => 'charge does not fit in this package\'s arithmetic',
         };

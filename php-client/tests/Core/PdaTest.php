@@ -17,9 +17,9 @@ use SolPay\Core\Pda;
  * sample, so a fresh regeneration (see pda-spike/README.md) can be diffed
  * against these constants by hand.
  *
- * The meter address was recomputed on 2026-09-29, when the seed became
- * `meter` (SPEC.md §4.11): by this package and by an independent derivation,
- * and confirmed against the crate by bin/test-php.
+ * The fund, fund token account and meter literals were recomputed on
+ * 2026-09-29 for the fund design (SPEC.md §4.7): by this package and by an
+ * independent derivation, and confirmed against the crate by bin/test-php.
  */
 final class PdaTest extends TestCase
 {
@@ -36,13 +36,36 @@ final class PdaTest extends TestCase
         self::assertSame(255, $site['bump']);
     }
 
+    public function testFundAndItsTokenAccountMatchTheRustCrate(): void
+    {
+        $fund = Pda::fundAddress(self::seed('payer-0'), self::seed('mint-0'), 0);
+
+        self::assertSame('Ci29hxcazhP6wMYrtyP89obQES1PrdXNsXcLpNfCjnUL', $fund['address']);
+        self::assertSame(255, $fund['bump']);
+        self::assertSame(
+            'HMWvX7LhM4iJq4vJXxxSrTz5S6sHfQTXSgrHTyf5Tx7U',
+            Pda::fundTokenAccount($fund['address'], self::seed('mint-0')),
+        );
+    }
+
     public function testMeterAddressMatchesTheRustCrate(): void
     {
         $site = Pda::siteAddress(self::seed('authority-0'))['address'];
-        $meter = Pda::meterAddress($site, self::seed('payer-0'));
+        $fund = Pda::fundAddress(self::seed('payer-0'), self::seed('mint-0'), 0)['address'];
+        $meter = Pda::meterAddress($site, $fund);
 
-        self::assertSame('EvYuJ77oc2LPsdvCK3rvLzaDY2FUsF2xtXW67Wf9ZK4u', $meter['address']);
+        self::assertSame('7BiAHXnVXJi9qxDdmzLfqhdb9FdnmVNkgo6RiU1rtto6', $meter['address']);
         self::assertSame(255, $meter['bump']);
+    }
+
+    public function testTheIndexIsOneByte(): void
+    {
+        $a = Pda::fundAddress(self::seed('payer-0'), self::seed('mint-0'), 0)['address'];
+        $b = Pda::fundAddress(self::seed('payer-0'), self::seed('mint-0'), 255)['address'];
+        self::assertNotSame($a, $b);
+
+        $this->expectException(\InvalidArgumentException::class);
+        Pda::fundAddress(self::seed('payer-0'), self::seed('mint-0'), 256);
     }
 
     public function testDefaultsToTheCanonicalDeployment(): void

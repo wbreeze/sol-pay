@@ -27,9 +27,10 @@ use SolPay\Core\TxException;
  * Seeds match vectors-gen's, so every literal below is the same case
  * `solana-message` and `solana-transaction` compiled.
  *
- * The meter_and_settle literals were recomputed on 2026-09-29, when the
- * meter's seed changed (SPEC.md §4.11) and moved the meter PDA and its place
- * in the sorted key list; bin/test-php confirms them against the crate.
+ * The meter_and_settle literals were recomputed on 2026-09-29, twice: when
+ * the meter's seed changed (SPEC.md §4.11), and again for the fund design
+ * (§4.7), which put the fund and its token account in the key list in place
+ * of the reader's; bin/test-php confirms them against the crate.
  */
 final class TxTest extends TestCase
 {
@@ -47,8 +48,7 @@ final class TxTest extends TestCase
             Program::default(),
             Pda::siteAddress($authority)['address'],
             $authority,
-            self::seed('payer-0'),
-            self::seed('payer-ata-0'),
+            Pda::fundAddress(self::seed('payer-0'), self::seed('mint-0'), 0)['address'],
             self::seed('treasury-0'),
             self::seed('mint-0'),
             7,
@@ -74,16 +74,16 @@ final class TxTest extends TestCase
 
         self::assertSame(
             '010005092c8e0047d7d6624eb2213f5d1191d37301836d6731bafa4fbe874311'
-            .'0bbe852a7f119555a5f2e9ab30519f5113c79edef32f6c0d03f8cf1ded3cfad6'
-            .'b74333e8cedfc8c294400fabfb605a07d28e2f77281836b52406a1efced63a91'
-            .'c5dc9beae76a41b8f3e7af706457581b858d9f0f909d1c0c982019e8ecf12577'
-            .'0f23fc3306ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf585'
-            .'7eff00a95e25d28c5bb4ab2ef2d79b02c49f3b45ded37d11b834103065630924'
-            .'b770a076a9abf5f0e8b46c57452bdf96cc079830ab249020269c0c77435cc936'
-            .'691394a8d1ed72dcfbf82262eff5e9abee9cb9dca3ae229e0f170f3a55202e71'
+            .'0bbe852a5be478319bcda025f646f4604b77f11efd93f0bb934f074c88b7ce0e'
+            .'d0f0cfe57f119555a5f2e9ab30519f5113c79edef32f6c0d03f8cf1ded3cfad6'
+            .'b74333e8f2fc70d575a7d90ddcd766d803d58026fb5d8c87c88cec4301ab2667'
+            .'1101c34306ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf585'
+            .'7eff00a9a9abf5f0e8b46c57452bdf96cc079830ab249020269c0c77435cc936'
+            .'691394a8adf2ab77784b3498f01e4cfac30c3b49ce189860459d29dc13cab0ff'
+            .'41b96f45d1ed72dcfbf82262eff5e9abee9cb9dca3ae229e0f170f3a55202e71'
             .'cfcb4d9ff2d6713221830bf6ab79743159da843f4ea258b322eabfa5ecf92d2c'
             .'8a6601f04d003c82f33a48a10d3fc88c2602dd2e1ae25d5372992b9eeba4dbe7'
-            .'c54c929c01070808000502030106040c8b11008b72e9587907000000',
+            .'c54c929c01070808000601030205040c8b11008b72e9587907000000',
             bin2hex($message),
         );
     }
@@ -105,7 +105,7 @@ final class TxTest extends TestCase
             .'01'                                          // one instruction
             .'07'                                          // program id is key 7
             .'08'                                          // eight accounts
-            .'0800050203010604'                            // in the instruction's order
+            .'0800060103020504'                            // in the instruction's order
             .'0c'                                          // twelve bytes of data
             .'8b11008b72e9587907000000',
             $tail,
